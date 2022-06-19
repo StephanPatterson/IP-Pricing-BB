@@ -7,8 +7,9 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		38169D18285FD26100FD4127 /* Node.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 38169D14285FD26100FD4127 /* Node.cpp */; };
+		38169D19285FD26100FD4127 /* SuppPt.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 38169D16285FD26100FD4127 /* SuppPt.cpp */; };
 		382520DD2832E29000CF1AEA /* main.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 382520DC2832E29000CF1AEA /* main.cpp */; };
-		38D3867C2833F86400BBFD0F /* Node.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 38D3867B2833F86400BBFD0F /* Node.cpp */; };
 		38D38680283434C500BBFD0F /* libgurobi_c++.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 38D3867F283434C500BBFD0F /* libgurobi_c++.a */; };
 		38D38683283434DC00BBFD0F /* libgurobi95.dylib in Frameworks */ = {isa = PBXBuildFile; fileRef = 38D38682283434DC00BBFD0F /* libgurobi95.dylib */; };
 		38D38684283434DC00BBFD0F /* libgurobi95.dylib in Embed Libraries */ = {isa = PBXBuildFile; fileRef = 38D38682283434DC00BBFD0F /* libgurobi95.dylib */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
@@ -38,10 +39,13 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		38169D13285FD26100FD4127 /* DenverCrime.csv */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text; path = DenverCrime.csv; sourceTree = "<group>"; };
+		38169D14285FD26100FD4127 /* Node.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = Node.cpp; sourceTree = "<group>"; };
+		38169D15285FD26100FD4127 /* SuppPt.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; path = SuppPt.hpp; sourceTree = "<group>"; };
+		38169D16285FD26100FD4127 /* SuppPt.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = SuppPt.cpp; sourceTree = "<group>"; };
+		38169D17285FD26100FD4127 /* Node.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; path = Node.hpp; sourceTree = "<group>"; };
 		382520D92832E29000CF1AEA /* PricingIP_BB */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = PricingIP_BB; sourceTree = BUILT_PRODUCTS_DIR; };
 		382520DC2832E29000CF1AEA /* main.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = main.cpp; sourceTree = "<group>"; };
-		38D3867A2833F86400BBFD0F /* Node.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; path = Node.hpp; sourceTree = SOURCE_ROOT; };
-		38D3867B2833F86400BBFD0F /* Node.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = Node.cpp; sourceTree = SOURCE_ROOT; };
 		38D3867F283434C500BBFD0F /* libgurobi_c++.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; name = "libgurobi_c++.a"; path = "../../../../../Library/gurobi951/macos_universal2/lib/libgurobi_c++.a"; sourceTree = "<group>"; };
 		38D38682283434DC00BBFD0F /* libgurobi95.dylib */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.dylib"; name = libgurobi95.dylib; path = ../../../../../Library/gurobi951/macos_universal2/lib/libgurobi95.dylib; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -80,9 +84,12 @@
 		382520DB2832E29000CF1AEA /* PricingIP_BB */ = {
 			isa = PBXGroup;
 			children = (
+				38169D13285FD26100FD4127 /* DenverCrime.csv */,
+				38169D14285FD26100FD4127 /* Node.cpp */,
+				38169D17285FD26100FD4127 /* Node.hpp */,
+				38169D16285FD26100FD4127 /* SuppPt.cpp */,
+				38169D15285FD26100FD4127 /* SuppPt.hpp */,
 				382520DC2832E29000CF1AEA /* main.cpp */,
-				38D3867B2833F86400BBFD0F /* Node.cpp */,
-				38D3867A2833F86400BBFD0F /* Node.hpp */,
 			);
 			path = PricingIP_BB;
 			sourceTree = "<group>";
@@ -153,8 +160,9 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				38D3867C2833F86400BBFD0F /* Node.cpp in Sources */,
 				382520DD2832E29000CF1AEA /* main.cpp in Sources */,
+				38169D19285FD26100FD4127 /* SuppPt.cpp in Sources */,
+				38169D18285FD26100FD4127 /* Node.cpp in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
