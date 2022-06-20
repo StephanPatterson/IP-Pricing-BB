@@ -7,9 +7,9 @@
 
 #include "SuppPt.hpp"
 #include "Node.hpp"
+#include "/Library/gurobi951/macos_universal2/include/gurobi_c++.h"
 #include <iostream>
 #include <vector>
-#include "/Library/gurobi951/macos_universal2/include/gurobi_c++.h"
 #include <sstream>
 #include <fstream>
 #include <cmath>
@@ -39,13 +39,14 @@ struct ij
 int main(int argc, const char * argv[]) {
    
    int Pnum =4;//If NumMoMeas = 1, Number of months to process. Will go consecutively from start month, skipping any empty months.
-   std::string startmonth = "Jul";
+   std::string startmonth = "Jul";//Three-digit code for month
    int startyear = 15;
    int NumMoMeas = 1;
    int Psnum[Pnum];
    std::vector< std::vector<SuppPt> > PsuppT(Pnum);
    int totalsupp = 0;
    int indices[Pnum];//The use of indices is changing (from previous code) to match the two-indexed vector representation of the support sets
+   //Now used primarily for tracking current index in each measure while running all combinations to produce the cost vector c
    double lambda[Pnum];
 
    std::string temp;
@@ -81,24 +82,22 @@ int main(int argc, const char * argv[]) {
       indata >> month;
       if (year != startyear)
       {
-         std::cout << "Selected Month/Year not in data." << std::endl;
+         std::cout << "Invalid Input. Selected Month/Year not in data." << std::endl;
          return 1;
       }
       if (indata.eof())
       {
          indata.close();
-         std::cout << "Invalid Input. End of file reached." << std::endl;
+         std::cout << "Invalid Input. End of file reached while searching for starting Month/Year." << std::endl;
          return 1;
       }
    }
    
    double loc1;
    double loc2;
-   indata >> loc1;
-   indata >> loc2;
+   indata >> loc1 >> loc2;
    std::string currentmonth = startmonth;
          
-   int tempind = 0;
    for (int i = 0; i < Pnum; ++i)
    {
       Psnum[i] = 0;
@@ -109,24 +108,22 @@ int main(int argc, const char * argv[]) {
          {
             //Adding a shift so that all coordinates are positive
             PsuppT[i].push_back(SuppPt(loc1+115, loc2, 1.0, totalsupp));
-            ++tempind;
             ++Psnum[i];
             ++totalsupp;
                   
-            indata >> year;
-            indata >> month;
-            indata >> loc1;
-            indata >> loc2;
+            indata >> year >> month >> loc1 >> loc2;
             if (indata.eof())
             {
                indata.close();
-               std::cout << "Invalid Input. End of file reached." << std::endl;
+               std::cout << "Invalid Input. End of file reached while reading in months to measures." << std::endl;
                return 1;
             }
          }
          currentmonth = month;
       }
       std::cout << "Month measure: " << i+1 << " Size: " << Psnum[i] << std::endl;
+      
+      //Scale the masses for each month to sum to 1
       double totalmass = 0;
       for (int j = 0; j < Psnum[i]-1; ++j)
       {
@@ -137,6 +134,8 @@ int main(int argc, const char * argv[]) {
       currentmonth = month;
    }
    indata.close();
+   
+   //Compute the weights for each month
    double sum = 0;
    for (int i = 0; i < Pnum-1; ++i)
    {
@@ -154,8 +153,10 @@ int main(int argc, const char * argv[]) {
    }
    std::cout << "Size of S0: " << S0 << std::endl;
 
-  //Now calculate costs.
+   //Now calculate cost vector c.
+   //The ultimate goal is to not compute and store all these c's, as it is exponential in size
    std::vector<double> c(S0,0);
+   //Using index as a dummy variable for readability
    int index = 0;
    for (unsigned long int j = 0; j < S0; ++j)
    {
@@ -167,7 +168,9 @@ int main(int argc, const char * argv[]) {
          sum1 += lambda[i]*PsuppT[i][index].loc1;
          sum2 += lambda[i]*PsuppT[i][index].loc2;
       }
-         
+      
+      //Pbar0 is the optimal location for minimum transport cost to the current combination of support points
+      //Now compute the transport cost from Pbar0 to the support points in the combination
       SuppPt Pbar0 = SuppPt(sum1, sum2, 0.0);
       for (int i = 0; i < Pnum; ++i)
       {
@@ -175,12 +178,14 @@ int main(int argc, const char * argv[]) {
          c[j] += lambda[i]*((Pbar0.loc1-PsuppT[i][index].loc1)*(Pbar0.loc1-PsuppT[i][index].loc1) +(Pbar0.loc2-PsuppT[i][index].loc2)*(Pbar0.loc2-PsuppT[i][index].loc2));
       }
          
+      //Adjust indices of the combination
       int k = Pnum-1;
+      //If the support point in the last measure is not the last one, move to next
       if (indices[k] < Psnum[k]-1)
       {
          ++indices[k];
       }
-      else
+      else //If it is the last support point, track backwards to the last measure which is not at the last support point
       {
          int temp = k-1;
          while (temp >= 0)
@@ -191,23 +196,29 @@ int main(int argc, const char * argv[]) {
             }
             else
             {
+               //Move that support point to the next index
                ++indices[temp];
                break;
             }
          }
          for (int l = k; l > temp; --l)
          {
+            //Then reset all later measures to the first support point
             indices[l] = 0;
          }
       }
    }
    
+   //Reset to the first support point of each measure
+   //Next used in generating an initial feasible solution (greedy)
    for (int i = 0; i < Pnum; ++i)
    {
       indices[i] = 0;
    }
    
-   //Set up Master Problem. Need a y from master problem for setting up objective function for IP pricing
+   //Set up Initial Master Problem. Contains Greedy solution for initial columns
+   //As of 6/20/22, the pricing problem is not adding back into this problem for complete column generation
+   //Purpose: Need a y from master problem for setting up objective function for IP pricing
    GRBEnv* env = new GRBEnv();
    GRBModel* model = new GRBModel(*env);
    model->set(GRB_IntParam_Method, 0);
@@ -218,11 +229,14 @@ int main(int argc, const char * argv[]) {
    std::vector< GRBVar > w;
    GRBLinExpr  exp[totalsupp];
 
+   //Create a temporary copy of the set of support points, will be modified
    std::vector< std::vector<SuppPt> >::iterator Psuppit = PsuppT.begin();
    std::vector<std::vector<SuppPt> > Psupp2(Pnum);
    std::copy(Psuppit, Psuppit+Pnum, Psupp2.begin() );
+   //While the last support point of (any, using first) measure still has positive mass
    while (Psupp2[0][Psnum[0]-1].mass >1e-15)
    {
+      //Find smallest remaining mass among support points of current combination
       double minmass = 1;
       for (int i = 0; i < Pnum; ++i)
       {
@@ -233,6 +247,7 @@ int main(int argc, const char * argv[]) {
       }
       std::cout << "Minimum mass is " << minmass <<std::endl;
       
+      //Index math based on Algorithm 1 in A Column Generation Approach to the Discrete Barycenter Problem
       long int loocur = S0;
       int unki = 0;
       int index = 0;
@@ -257,7 +272,11 @@ int main(int argc, const char * argv[]) {
       std::cout << std::endl;
       
       std::cout << "current index is " << unki << " out of " << S0-1 <<std::endl;*/
+      
+      //Create a variable for this combination
       w.push_back(model->addVar(0.0, GRB_INFINITY, c[unki], GRB_CONTINUOUS));
+      
+      //Add variable to corresponding constraints
       loocur = S0/Psnum[0];
       int startindex = Psnum[0];
       int jindex = floor(unki/loocur);
@@ -282,19 +301,24 @@ int main(int argc, const char * argv[]) {
       }
    }
    model->optimize();
+   //This reduced-cost vector yhat is the needed information for the Integer Pricing Program
    double * yhat = model->get(GRB_DoubleAttr_Pi, model->getConstrs(), totalsupp);
 
+   //Begin branch & bound for IP pricing
+   //For storing unprocessed nodes during the branch & bound
+   //Will sort these as part of experimenting with order of node processing
    std::vector<Node> Tree_to_Process;
    
    GRBModel* basemodel = new GRBModel(*env);
    basemodel->set(GRB_IntParam_Method, 0);
    basemodel->set(GRB_IntAttr_ModelSense, -1);//set to maximize
 
+   //For storing the best integer solution
    std::vector<std::vector<double> > Best_Found_Solution(Pnum);
    double tol = 1e-4;
    
    //This will generate an initial solution from the first point in each measure
-   // giving an initial lower bound
+   //giving an initial lower bound
    for (int i = 0; i < Pnum; ++i)
    {
       Best_Found_Solution[i].push_back(1);
@@ -308,13 +332,19 @@ int main(int argc, const char * argv[]) {
    std::cout << "Initial best objective value is " << bestbound <<std::endl;
    index = 0;
    
+   //Create a variable for each support point
+   //z2 are the 2-indexed variables in the integer program
    int Psmax = *std::max_element(Psnum, Psnum+Pnum);
    std::vector< std::vector<GRBVar > > z2(Pnum, std::vector<GRBVar>((Psmax)));
    
+   //Create a variable for each product of the two-indexed variables
+   //z4 are the four-indexed variables in the integer program
    std::vector< std::vector< std::vector< std::vector< GRBVar >> >>z4(Pnum,std::vector< std::vector< std::vector< GRBVar >>>(Psmax, std::vector< std::vector< GRBVar >>(Pnum, std::vector< GRBVar >(Psmax))));
    
+   //Creating base model, which will then be split into two scenarios for each node
    int currentconst = 0;
    int totalconstraints = 0;
+   //Add 2-indexed variables to model and the choose-one-per-measure constraints
    for (int i = 0; i < Pnum; ++i)
    {
       GRBLinExpr expp;
@@ -332,6 +362,7 @@ int main(int argc, const char * argv[]) {
       ++totalconstraints;
    }
    
+   //Now repeat with 4-indexed variables and their inequality constraints
    GRBLinExpr expp2[totalsupp*totalsupp*2];
    int constrcol = 0;
    for (int i = 0; i < Pnum-1; ++i)
@@ -363,9 +394,10 @@ int main(int argc, const char * argv[]) {
       basemodel->addConstr(expp2[k] <= 0);
       ++totalconstraints;
    }
-   // add/update the coefficient on z[i][j]
+   // add/update the objective function coefficient on z2[i][j]
    std::vector< std::vector< double > > zikcost(Pnum, std::vector<double> ((Psmax),0));
    std::vector< std::vector< double > > zjmcost(Pnum, std::vector<double> ((Psmax),0));
+   //Compute the coefficients for z_ik first
    for (int i = 0; i < Pnum-1; ++i)
    {
       for (int j = i+1; j < Pnum; ++j)
@@ -377,6 +409,7 @@ int main(int argc, const char * argv[]) {
          }
       }
    }
+   //Then compute for z_jm
    for (int i = 0; i< Pnum-1; ++i)
    {
       for (int j = i+1; j < Pnum; ++j)
@@ -388,6 +421,7 @@ int main(int argc, const char * argv[]) {
          }
       }
    }
+   //Add both to objective function
    currentconst = 0;
    for (int i = 0; i < Pnum; ++i)
    {
@@ -424,10 +458,10 @@ int main(int argc, const char * argv[]) {
    
 //   std::cout << objval(yhat,lambda,PsuppT,ztest,Pnum,Psnum) << " " << objval2(yhat,lambda,PsuppT,ztest,Pnum,Psnum) << " " << objval3(yhat, lambda, PsuppT, z2, z4, Pnum, Psnum) << " " << basemodel->get(GRB_DoubleAttr_ObjVal) << std::endl;
    
-   //Solve full linear program (essentially initial node) and check for integrality; if integral, solution found
+   //Solve full linear program (essentially: initial node) and check for integrality; if integral, solution found
    basemodel->optimize();
    
-   //Can use this for part of paper talking about how fractional the vertices are
+   //Can use the solution to this intial solve for the part of paper talking about how fractional the vertices are
    if (basemodel->get(GRB_IntAttr_Status) == 2)
    {
       if (check_integral(z2,Pnum,Psnum,tol))
@@ -437,7 +471,7 @@ int main(int argc, const char * argv[]) {
       }
    }
    
-   //Branch Index will store the measure number, index within the measure, and the variable's assigned value for each step of the tree. These will likely not match the row number and column number within the tree, which is what the two indices of Branch Index are.
+   //Branch Index will store the measure number, index within the measure, and the variable's assigned value for each step of the tree. These will likely not match the row number and column number within the tree, which is what the two indices of Branch Index represent.
    //So if you initially decide to branch on the variable that goes with the first support point of measure 3, BranchIndex[0][0] = (2,0), and BranchIndex[1][0] = (2,0,0) and BranchIndex[1][1] = (2,0,1)
    std::vector< std::vector< ij > > BranchIndex(2);//Pnum is the minimum number of rows to reach a feasible solution, but starting with 2 and allocating additional space as needed
    BranchIndex[0].resize(1);
@@ -489,7 +523,7 @@ int main(int argc, const char * argv[]) {
          }
       }
    }
-   else if (scenstatus == 3 or scenstatus == 4)
+   else if (scenstatus == 3 or scenstatus == 4)//LP Infeasible or Infeasible/Unbounded, should be infeasible
    {
       node2.bound = 0;
       node2.is_leaf = 0;
@@ -675,7 +709,7 @@ int main(int argc, const char * argv[]) {
             }
          }
       }
-      else if (scenstatus == 3 or scenstatus == 4) //LP Infeasible
+      else if (scenstatus == 3 or scenstatus == 4) //LP Infeasible or Infeasible/Unbounded, should be infeasible
       {
          node2.bound = 0;
          node2.is_leaf = 0;
@@ -688,7 +722,8 @@ int main(int argc, const char * argv[]) {
 
          
       basemodel->set(GRB_IntParam_ScenarioNumber, 0);
-      if (basemodel->get(GRB_IntAttr_Status) == 2)
+      scenstatus =basemodel->get(GRB_IntAttr_Status);
+      if ( scenstatus == 2)
       {
          node1.bound = basemodel->get(GRB_DoubleAttr_ScenNObjVal);
          std::cout << node1.bound <<std::endl;
@@ -714,7 +749,7 @@ int main(int argc, const char * argv[]) {
             }
          }
       }
-      else if (scenstatus == 3 or scenstatus == 4) //LP Infeasible
+      else if (scenstatus == 3 or scenstatus == 4) //LP Infeasible or Infeasible/Unbounded, should be infeasible
       {
          node1.bound = 0;
          node1.is_leaf = 0;
@@ -750,6 +785,10 @@ int main(int argc, const char * argv[]) {
    delete env;
    return 0;
 }
+
+// Functions for each formulation of computing the objective value from new paper
+//Objval and objval2 should always produce the same value.
+//For an integer solution, objval3 also produces the same solution. However, when z2 is not restricted to integer values, neither is z4, and z2[i][k]*z2[j][m] != z4[i][k][j][m]. The values are orders of magnitude different.
 
 double objval(const double * y, const double * lambda, std::vector< std::vector< SuppPt> >& x, std::vector<std::vector<double> >& z, const int Pnum, const int * Psnum)
 {
@@ -891,8 +930,8 @@ double objval3(const double * y, const double * lambda, std::vector< std::vector
    return val;
 }
 
-//Objval and objval2 should always produce the same value. For an integer solution, objval3 also produces the same solution. However, when z2 is not restricted to integer values, neither is z4, and z2[i][k]*z2[j][m] != z4[i][k][j][m]. The values are orders of magnitude different.
-
+//Function for checking if an LP solution is integral
+//Tolerance is set in main; using default 1e-4
 bool check_integral(std::vector<std::vector< GRBVar> > &z2, const int Pnum, const int *Psnum, const double &tol)
 {
    bool integral = true;
