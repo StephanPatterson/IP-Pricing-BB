@@ -598,6 +598,7 @@ int main(int argc, const char * argv[]) {
       
       //Now decide a new [i][j] to branch on
       //This choice takes us in index order: (1,1), then (1,2), then (1,3), etc., eventually then going to (2,1), making the same choice across a particular row.
+      //Modify here to choose nodes in a different order, i.e., closest to integer
       if (BranchIndex[processingnode.row][processingnode.numinrow].jindex+1 < Psnum[BranchIndex[processingnode.row][processingnode.numinrow].iindex])
       {
          newij.jindex = BranchIndex[processingnode.row][processingnode.numinrow].jindex+1;
@@ -775,11 +776,7 @@ int main(int argc, const char * argv[]) {
 /*      std::ostringstream filename2;
    filename2 << "/Users/spatterson/ForXcode/PricingLP/Pricing_TestBB1.lp";
    basemodel->write(filename2.str());*/
-
-   
-   
-//   std::cout << basemodel->get(GRB_IntAttr_Status) <<std::endl;
-   
+      
    basemodel->terminate();
    delete basemodel;
    delete env;
