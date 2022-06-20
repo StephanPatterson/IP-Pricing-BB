@@ -14,10 +14,6 @@
 #include <fstream>
 #include <cmath>
 
-double objval(const double *, const double *, std::vector< std::vector< SuppPt> >&, std::vector<std::vector<double> >&, const int, const int *);
-double objval2(const double *, const double *, std::vector< std::vector< SuppPt> >&, std::vector<std::vector<double> >&, const int, const int *);
-double objval3(const double *, const double *, std::vector< std::vector< SuppPt> >&, std::vector<std::vector<GRBVar> >&, std::vector<std::vector<std::vector<std::vector<GRBVar> > > >&, const int, const int *);
-bool check_integral(std::vector<std::vector< GRBVar> > &, const int, const int *, const double &);
 
 struct ij
 {
@@ -35,6 +31,14 @@ struct ij
       
    }
 };
+
+double objval(const double *, const double *, std::vector< std::vector< SuppPt> >&, std::vector<std::vector<double> >&, const int, const int *);
+double objval2(const double *, const double *, std::vector< std::vector< SuppPt> >&, std::vector<std::vector<double> >&, const int, const int *);
+double objval3(const double *, const double *, std::vector< std::vector< SuppPt> >&, std::vector<std::vector<GRBVar> >&, std::vector<std::vector<std::vector<std::vector<GRBVar> > > >&, const int, const int *);
+bool check_integral(std::vector<std::vector< GRBVar> > &, const int, const int *, const double &);
+int clear_scenario(std::vector<std::vector< GRBVar> > &z2, const int Pnum, const int *Psnum);
+int input_tree_decisions(std::vector<std::vector< GRBVar> > &, int , int , std::vector< std::vector<ij> > &);
+int process_LPstatus(const int , Node &, double &, std::vector<std::vector< GRBVar> > &, const int , const int *, const double , std::vector< std::vector<double> > &, std::vector<Node> &, GRBModel* );
 
 int main(int argc, const char * argv[]) {
    
@@ -350,6 +354,7 @@ int main(int argc, const char * argv[]) {
       GRBLinExpr expp;
       for (int j = 0; j < Psnum[i]; ++j)
       {
+         //Names can be removed, also for readability
          std::stringstream name;
          name << "z" << i+1 << "_" << j+1;
          std::string name2;
@@ -373,6 +378,7 @@ int main(int argc, const char * argv[]) {
          {
             for (int m = 0; m < Psnum[j]; ++m)
             {
+               //Names also optional
                std::stringstream name;
                name << "z" << i+1 <<"_" <<k+1 << "_" <<j+1 << "_" <<m+1;
                std::string name2;
@@ -471,14 +477,18 @@ int main(int argc, const char * argv[]) {
       }
    }
    
-   //Branch Index will store the measure number, index within the measure, and the variable's assigned value for each step of the tree. These will likely not match the row number and column number within the tree, which is what the two indices of Branch Index represent.
+   //Branch Index will store the measure number, index within the measure, and the variable's assigned value for each step of the tree.
+   //Measure/Index numbers will likely not match the row number and column number within the tree, that is; the two indices of Branch Index.
    //So if you initially decide to branch on the variable that goes with the first support point of measure 3, BranchIndex[0][0] = (2,0), and BranchIndex[1][0] = (2,0,0) and BranchIndex[1][1] = (2,0,1)
    std::vector< std::vector< ij > > BranchIndex(2);//Pnum is the minimum number of rows to reach a feasible solution, but starting with 2 and allocating additional space as needed
+   //Experiment: preallocate plenty of space vs. Minimizing space utilized
+   //Potential Memory savings: don't allocate entire row of space? Would need to change
    BranchIndex[0].resize(1);
    BranchIndex[0][0]=ij(0,0,-1); //BranchIndex[0] is the initial decision. BranchIndex[1] will contain the two decisions from the first row, etc.
    BranchIndex[1].resize(2);
    
    //Begin setup of 2 scenarios for computing LPs for both child nodes
+   //Set Upper bound = 0 in one scenario and Lower bound = 1 in the other
    basemodel->set(GRB_IntAttr_NumScenarios, 2);
    
    basemodel->set(GRB_IntParam_ScenarioNumber, 0);
@@ -492,7 +502,8 @@ int main(int argc, const char * argv[]) {
    z2[0][0].set(GRB_DoubleAttr_ScenNLB, 1);
    
    basemodel->optimize();
-   
+   process_LPstatus(basemodel->get(GRB_IntAttr_Status), node2, bestbound, z2, Pnum, Psnum, tol, Best_Found_Solution, Tree_to_Process, basemodel);
+   /*
    int scenstatus = basemodel->get(GRB_IntAttr_Status);
    if (scenstatus == 2) //Optimal solution to LP found
    {
@@ -532,10 +543,11 @@ int main(int argc, const char * argv[]) {
    {
       std::cout << "Unexpected Scenario Status Reached: Status " << scenstatus << std::endl;
       return -1;
-   }
+   }*/
    
    basemodel->set(GRB_IntParam_ScenarioNumber, 0);
-   if (basemodel->get(GRB_IntAttr_Status) == 2)
+   process_LPstatus(basemodel->get(GRB_IntAttr_Status), node1, bestbound, z2, Pnum, Psnum, tol, Best_Found_Solution, Tree_to_Process, basemodel);
+/*   if (basemodel->get(GRB_IntAttr_Status) == 2)
    {
       node1.bound = basemodel->get(GRB_DoubleAttr_ScenNObjVal);
       std::cout << node1.bound <<std::endl;
@@ -560,7 +572,7 @@ int main(int argc, const char * argv[]) {
             Tree_to_Process.push_back(node1);
          }
       }
-   }
+   }*/
    
    //Now choose new node
    //while Tree vector isn't empty
@@ -572,6 +584,7 @@ int main(int argc, const char * argv[]) {
       {
          gettingnode = false;
          processingnode = Tree_to_Process.back();
+         //Add check for no return & break if empty
          //This guarantees we process a node with the potential to improve, and that has leaves. No nodes without leaves should be added to the tree, so the check should be redundant
          if (processingnode.bound <= bestbound or processingnode.is_leaf == 0)
          {
@@ -597,7 +610,7 @@ int main(int argc, const char * argv[]) {
       ij newij;
       
       //Now decide a new [i][j] to branch on
-      //This choice takes us in index order: (1,1), then (1,2), then (1,3), etc., eventually then going to (2,1), making the same choice across a particular row.
+      //This choice takes us in index order: (0,0), then (0,1), then (0,2), etc., eventually then going to (1,0), making the same choice across a particular row.
       //Modify here to choose nodes in a different order, i.e., closest to integer
       if (BranchIndex[processingnode.row][processingnode.numinrow].jindex+1 < Psnum[BranchIndex[processingnode.row][processingnode.numinrow].iindex])
       {
@@ -617,6 +630,7 @@ int main(int argc, const char * argv[]) {
       //Now setup each scenario for the two new nodes
       basemodel->set(GRB_IntParam_ScenarioNumber, 0);
       //Removing all previous bound changes from the model.
+      /*
       for (int i = 0; i < Pnum; ++i)
       {
          for (int j = 0; j < Psnum[i]; ++j)
@@ -624,9 +638,12 @@ int main(int argc, const char * argv[]) {
             z2[i][j].set(GRB_DoubleAttr_ScenNUB, GRB_UNDEFINED);
             z2[i][j].set(GRB_DoubleAttr_ScenNLB, GRB_UNDEFINED);
          }
-      }
+      }*/
+      clear_scenario(z2,Pnum,Psnum);
       
       //now re-enter values for prior Branches. The fixed variable value is stored with the ij in BranchIndex, so we compute the previous ij
+      input_tree_decisions(z2,node1.row,node1.numinrow,BranchIndex);
+      /*
       long int bi_i = node1.row;
       long int bi_j = node1.numinrow;
       while (bi_i >= 1)
@@ -645,10 +662,11 @@ int main(int argc, const char * argv[]) {
          {
             z2[BranchIndex[bi_i][bi_j].iindex][BranchIndex[bi_i][bi_j].jindex].set(GRB_DoubleAttr_ScenNUB, 0);
          }
-      }
+      }*/
          
       //Repeat all for second scenario
       basemodel->set(GRB_IntParam_ScenarioNumber, 1);
+      /*
       for (int i = 0; i < Pnum; ++i)
       {
          for (int j = 0; j < Psnum[i]; ++j)
@@ -656,7 +674,10 @@ int main(int argc, const char * argv[]) {
             z2[i][j].set(GRB_DoubleAttr_ScenNUB, GRB_UNDEFINED);
             z2[i][j].set(GRB_DoubleAttr_ScenNLB, GRB_UNDEFINED);
          }
-      }
+      }*/
+      clear_scenario(z2,Pnum,Psnum);
+      input_tree_decisions(z2,node2.row,node2.numinrow,BranchIndex);
+      /*
       bi_i = node2.row;
       bi_j = node2.numinrow;
       while (bi_i >= 1)
@@ -675,13 +696,14 @@ int main(int argc, const char * argv[]) {
          {
             z2[BranchIndex[bi_i][bi_j].iindex][BranchIndex[bi_i][bi_j].jindex].set(GRB_DoubleAttr_ScenNUB, 0);
          }
-      }
+      }*/
       //Removing the processing node from the tree can be done any time after processing is complete and before adding new nodes
       Tree_to_Process.pop_back();
 
       //Solve the scenarios together
       basemodel->optimize();
-
+      process_LPstatus(basemodel->get(GRB_IntAttr_Status), node2, bestbound, z2, Pnum, Psnum, tol, Best_Found_Solution, Tree_to_Process, basemodel);
+      /*
       int scenstatus = basemodel->get(GRB_IntAttr_Status);
       if (scenstatus == 2) //Optimal Solution to LP Reached
       {
@@ -719,10 +741,12 @@ int main(int argc, const char * argv[]) {
       {
          std::cout << "Unexpected Scenario Status Reached: Status " << scenstatus << std::endl;
          return -1;
-      }
+      }*/
 
          
       basemodel->set(GRB_IntParam_ScenarioNumber, 0);
+      process_LPstatus(basemodel->get(GRB_IntAttr_Status), node1, bestbound, z2, Pnum, Psnum, tol, Best_Found_Solution, Tree_to_Process, basemodel);
+      /*
       scenstatus =basemodel->get(GRB_IntAttr_Status);
       if ( scenstatus == 2)
       {
@@ -759,7 +783,7 @@ int main(int argc, const char * argv[]) {
       {
          std::cout << "Unexpected Scenario Status Reached: Status " << scenstatus << std::endl;
          return -1;
-      }
+      }*/
    }
    
    std::cout << "Best found solution has value: " << bestbound << std::endl;
@@ -946,5 +970,87 @@ bool check_integral(std::vector<std::vector< GRBVar> > &z2, const int Pnum, cons
    return integral;
 }
 
+int clear_scenario(std::vector<std::vector< GRBVar> > &z2, const int Pnum, const int *Psnum)
+{
+   for (int i = 0; i < Pnum; ++i)
+   {
+      for (int j = 0; j < Psnum[i]; ++j)
+      {
+         z2[i][j].set(GRB_DoubleAttr_ScenNUB, GRB_UNDEFINED);
+         z2[i][j].set(GRB_DoubleAttr_ScenNLB, GRB_UNDEFINED);
+      }
+   }
+   return 0;
+}
 
+int input_tree_decisions(std::vector<std::vector< GRBVar> > &z2, int bi_i, int bi_j, std::vector< std::vector<ij> > &BranchIndex)
+{
+   if (bi_i <= 0)
+   {
+      std::cout << "No prior rows in tree to enter." <<std::endl;
+      return 2;
+   }
+   if (bi_j <= 0)
+   {
+      std::cout << "Invalid row index." <<std::endl;
+   }
+   
+   while (bi_i >= 1)
+   {
+      --bi_i;
+      if (bi_j %2 == 1)
+      {
+         --bi_j;
+      }
+      bi_j /= 2;
+      if (BranchIndex[bi_i][bi_j].setval == 1)
+      {
+         z2[BranchIndex[bi_i][bi_j].iindex][BranchIndex[bi_i][bi_j].jindex].set(GRB_DoubleAttr_ScenNLB, 1);
+      }
+      else
+      {
+         z2[BranchIndex[bi_i][bi_j].iindex][BranchIndex[bi_i][bi_j].jindex].set(GRB_DoubleAttr_ScenNUB, 0);
+      }
+   }
 
+   return 0;
+}
+
+int process_LPstatus(const int scenstatus, Node &node, double &bestbound, std::vector<std::vector< GRBVar> > &z2, const int Pnum, const int *Psnum, const double tol, std::vector< std::vector<double> > &Best_Found_Solution, std::vector<Node> &Tree_to_Process, GRBModel* basemodel)
+{
+   node.bound = basemodel->get(GRB_DoubleAttr_ScenNObjVal);
+//   std::cout << node.bound <<std::endl;
+         
+   if (node.bound > bestbound)
+   {
+      //Then check for integrality
+      // If integral, new best solution found
+      if (check_integral(z2,Pnum,Psnum,tol))
+      {
+         bestbound = node.bound;
+         for (int i = 0; i < Pnum; ++i)
+         {
+            for (int j = 0; j < Psnum[i]; ++j)
+            {
+               Best_Found_Solution[i][j] = z2[i][j].get(GRB_DoubleAttr_X);
+            }
+         }
+      }
+      else // If non-integral, add to tree for branching
+      {
+         node.is_leaf = 1;
+         Tree_to_Process.push_back(node);
+      }
+   }
+   else if (scenstatus == 3 or scenstatus == 4) //LP Infeasible or Infeasible/Unbounded, should be infeasible
+   {
+      node.bound = 0;
+      node.is_leaf = 0;
+   }
+   else
+   {
+      std::cout << "Unexpected Scenario Status Reached: Status " << scenstatus << std::endl;
+      return -1;
+   }
+   return 0;
+}
