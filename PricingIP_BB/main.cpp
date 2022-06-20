@@ -9,9 +9,9 @@
 #include "Node.hpp"
 #include "/Library/gurobi951/macos_universal2/include/gurobi_c++.h"
 #include <iostream>
+#include <fstream>
 #include <vector>
 #include <sstream>
-#include <fstream>
 #include <cmath>
 
 
@@ -37,12 +37,12 @@ double objval2(const double *, const double *, std::vector< std::vector< SuppPt>
 double objval3(const double *, const double *, std::vector< std::vector< SuppPt> >&, std::vector<std::vector<GRBVar> >&, std::vector<std::vector<std::vector<std::vector<GRBVar> > > >&, const int, const int *);
 bool check_integral(std::vector<std::vector< GRBVar> > &, const int, const int *, const double &);
 int clear_scenario(std::vector<std::vector< GRBVar> > &z2, const int Pnum, const int *Psnum);
-int input_tree_decisions(std::vector<std::vector< GRBVar> > &, int , int , std::vector< std::vector<ij> > &);
+int input_tree_decisions(std::vector<std::vector< GRBVar> > &, long int , long int , std::vector< std::vector<ij> > &);
 int process_LPstatus(const int , Node &, double &, std::vector<std::vector< GRBVar> > &, const int , const int *, const double , std::vector< std::vector<double> > &, std::vector<Node> &, GRBModel* );
 
 int main(int argc, const char * argv[]) {
    
-   int Pnum =4;//If NumMoMeas = 1, Number of months to process. Will go consecutively from start month, skipping any empty months.
+   int Pnum =5;//If NumMoMeas = 1, Number of months to process. Will go consecutively from start month, skipping any empty months.
    std::string startmonth = "Jul";//Three-digit code for month
    int startyear = 15;
    int NumMoMeas = 1;
@@ -59,8 +59,18 @@ int main(int argc, const char * argv[]) {
    std::ostringstream fname;
    int year;
    std::string month;
-   fname << "/Users/spatterson/ForXcode/Barycenter/DenverCrime.csv";
-   indata.open(fname.str());
+   if (argc > 1)
+   {
+      fname << argv[1];
+      indata.open(fname.str());
+   }
+   else
+   {
+      std::cout << "Please enter filepath for DenverCrime file." << std::endl;
+      std::string filename;
+      getline( std::cin, filename);
+      indata.open(filename);
+   }
    if (!indata.good())
    {
       std::cout << "File not found." << std::endl;
@@ -157,11 +167,11 @@ int main(int argc, const char * argv[]) {
    }
    std::cout << "Size of S0: " << S0 << std::endl;
 
-   //Now calculate cost vector c.
-   //The ultimate goal is to not compute and store all these c's, as it is exponential in size
-   std::vector<double> c(S0,0);
-   //Using index as a dummy variable for readability
-   int index = 0;
+   //The ultimate goal is to not compute and store all these costs, as it is exponential in size
+   //In this file, these are not necessary; only the c's for the initial greedy solution are computed
+//   std::vector<double> c(S0,0);
+
+   /*
    for (unsigned long int j = 0; j < S0; ++j)
    {
       double sum1 = 0;
@@ -211,7 +221,7 @@ int main(int argc, const char * argv[]) {
             indices[l] = 0;
          }
       }
-   }
+   }*/
    
    //Reset to the first support point of each measure
    //Next used in generating an initial feasible solution (greedy)
@@ -237,6 +247,8 @@ int main(int argc, const char * argv[]) {
    std::vector< std::vector<SuppPt> >::iterator Psuppit = PsuppT.begin();
    std::vector<std::vector<SuppPt> > Psupp2(Pnum);
    std::copy(Psuppit, Psuppit+Pnum, Psupp2.begin() );
+   //Using index as a dummy variable for readability
+   int index = 0;
    //While the last support point of (any, using first) measure still has positive mass
    while (Psupp2[0][Psnum[0]-1].mass >1e-15)
    {
@@ -255,19 +267,22 @@ int main(int argc, const char * argv[]) {
       long int loocur = S0;
       int unki = 0;
       int index = 0;
+      
+      double sum1 = 0;
+      double sum2 = 0;
       for (int i = 0; i < Pnum; ++i)
       {
          unsigned long int index2 = Psupp2[i][indices[i]].combos-index;
 //         std::cout << Psupp2[i][indices[i]].combos << " " << index << std::endl;
 //         std::cout << "Index in Pi: " << Psupp2[i][indices[i]].combos - index <<std::endl;
+
+         sum1 += lambda[i]*PsuppT[i][indices[i]].loc1;
+         sum2 += lambda[i]*PsuppT[i][indices[i]].loc2;
+
          loocur /= Psnum[i];
          unki += loocur*index2;
          index += Psnum[i];
          Psupp2[i][indices[i]].mass -= minmass;
-         if (Psupp2[i][indices[i]].mass <= 1e-15)
-         {
-            ++indices[i];
-         }
       }
 /*      for (int i = 0; i < Pnum; ++i)
       {
@@ -278,7 +293,21 @@ int main(int argc, const char * argv[]) {
       std::cout << "current index is " << unki << " out of " << S0-1 <<std::endl;*/
       
       //Create a variable for this combination
-      w.push_back(model->addVar(0.0, GRB_INFINITY, c[unki], GRB_CONTINUOUS));
+      //This is the only place the c's are being used
+      double newc = 0;
+      SuppPt Pbar0 = SuppPt(sum1, sum2, 0.0);
+      for (int i = 0; i < Pnum; ++i)
+      {
+         newc += lambda[i]*((Pbar0.loc1-PsuppT[i][indices[i]].loc1)*(Pbar0.loc1-PsuppT[i][indices[i]].loc1) +(Pbar0.loc2-PsuppT[i][indices[i]].loc2)*(Pbar0.loc2-PsuppT[i][indices[i]].loc2));
+         //Updating indices needed to be done later than previous code projects to allow for cost to be computed here
+         if (Psupp2[i][indices[i]].mass <= 1e-15)
+         {
+            ++indices[i];
+         }
+      }
+//      std::cout << c[unki] << " " << newc <<std::endl;
+//      w.push_back(model->addVar(0.0, GRB_INFINITY, c[unki], GRB_CONTINUOUS));
+      w.push_back(model->addVar(0.0, GRB_INFINITY, newc, GRB_CONTINUOUS));
       
       //Add variable to corresponding constraints
       loocur = S0/Psnum[0];
@@ -438,30 +467,6 @@ int main(int argc, const char * argv[]) {
       }
    }
    
-   //This code should be removed from final version. Using for testing/debugging.
-/*   std::vector< std::vector<double > > ztest(Pnum);
-   for (int i = 0; i < Pnum; ++i)
-   {
-      for (int j = 0; j < Psnum[i]; ++j)
-      {
-         std::cout << "Z_"<<i+1 << j+1 << " " << z2[i][j].get(GRB_DoubleAttr_X) <<std::endl;
-         ztest[i].push_back(z2[i][j].get(GRB_DoubleAttr_X));
-      }
-   }*/
-/*   for (int i = 0; i < Pnum-1; ++i)
-   {
-      for (int j = i+1; j < Pnum; ++j)
-      {
-         for (int k = 0; k < Psnum[i]; ++k)
-         {
-            for (int m = 0; m < Psnum[j]; ++m)
-            {
-               std::cout <<z4[i][k][j][m].get(GRB_DoubleAttr_X) << " " << z2[i][k].get(GRB_DoubleAttr_X) << " " << z2[j][m].get(GRB_DoubleAttr_X) << std::endl;
-            }
-         }
-      }
-   }*/
-   
 //   std::cout << objval(yhat,lambda,PsuppT,ztest,Pnum,Psnum) << " " << objval2(yhat,lambda,PsuppT,ztest,Pnum,Psnum) << " " << objval3(yhat, lambda, PsuppT, z2, z4, Pnum, Psnum) << " " << basemodel->get(GRB_DoubleAttr_ObjVal) << std::endl;
    
    //Solve full linear program (essentially: initial node) and check for integrality; if integral, solution found
@@ -503,94 +508,39 @@ int main(int argc, const char * argv[]) {
    
    basemodel->optimize();
    process_LPstatus(basemodel->get(GRB_IntAttr_Status), node2, bestbound, z2, Pnum, Psnum, tol, Best_Found_Solution, Tree_to_Process, basemodel);
-   /*
-   int scenstatus = basemodel->get(GRB_IntAttr_Status);
-   if (scenstatus == 2) //Optimal solution to LP found
-   {
-      //Store value as best potential of branches of the node
-      node2.bound = basemodel->get(GRB_DoubleAttr_ScenNObjVal);
-      std::cout << node2.bound <<std::endl;
-      
-      //If the optimal value of the LP isn't better than the best found solution, the node's branches do not need to be explored further
-      if (node2.bound > bestbound)
-      {
-         //Then check for integrality
-         // If integral, new best solution found
-         if (check_integral(z2,Pnum,Psnum,tol))
-         {
-            bestbound = node2.bound;
-            for (int i = 0; i < Pnum; ++i)
-            {
-               for (int j = 0; j < Psnum[i]; ++j)
-               {
-                  Best_Found_Solution[i][j] = z2[i][j].get(GRB_DoubleAttr_X);
-               }
-            }
-         }
-         else // If non-integral, add to tree for branching
-         {
-            node2.is_leaf = 1;
-            Tree_to_Process.push_back(node2);
-         }
-      }
-   }
-   else if (scenstatus == 3 or scenstatus == 4)//LP Infeasible or Infeasible/Unbounded, should be infeasible
-   {
-      node2.bound = 0;
-      node2.is_leaf = 0;
-   }
-   else
-   {
-      std::cout << "Unexpected Scenario Status Reached: Status " << scenstatus << std::endl;
-      return -1;
-   }*/
-   
+
    basemodel->set(GRB_IntParam_ScenarioNumber, 0);
    process_LPstatus(basemodel->get(GRB_IntAttr_Status), node1, bestbound, z2, Pnum, Psnum, tol, Best_Found_Solution, Tree_to_Process, basemodel);
-/*   if (basemodel->get(GRB_IntAttr_Status) == 2)
-   {
-      node1.bound = basemodel->get(GRB_DoubleAttr_ScenNObjVal);
-      std::cout << node1.bound <<std::endl;
-      
-      if (node1.bound > bestbound)
-      {
-         // If integral, new best solution found
-         if (check_integral(z2,Pnum,Psnum,tol))
-         {
-            bestbound = node1.bound;
-            for (int i = 0; i < Pnum; ++i)
-            {
-               for (int j = 0; j < Psnum[i]; ++j)
-               {
-                  Best_Found_Solution[i][j] = z2[i][j].get(GRB_DoubleAttr_X);
-               }
-            }
-         }
-         else // If non-integral, add to tree for branching
-         {
-            node1.is_leaf = 1;
-            Tree_to_Process.push_back(node1);
-         }
-      }
-   }*/
-   
+
    //Now choose new node
    //while Tree vector isn't empty
    while (!Tree_to_Process.empty())
    {
       Node processingnode;
-      bool gettingnode = true;
-      while (gettingnode)
+      bool noimprovingnode= false;
+      bool finding_next_node = true;
+      while (finding_next_node)
       {
-         gettingnode = false;
+         if (Tree_to_Process.empty())
+         {
+            noimprovingnode = true;
+            break;
+         }
          processingnode = Tree_to_Process.back();
-         //Add check for no return & break if empty
-         //This guarantees we process a node with the potential to improve, and that has leaves. No nodes without leaves should be added to the tree, so the check should be redundant
+         //This guarantees we process a node with the potential to improve, and that has leaves.
+         //No nodes without leaves should be added to the tree, so the check should be redundant
          if (processingnode.bound <= bestbound or processingnode.is_leaf == 0)
          {
             Tree_to_Process.pop_back();
-            gettingnode = true;
          }
+         else
+         {
+            finding_next_node = false;
+         }
+      }
+      if (noimprovingnode)
+      {
+         break;
       }
 
       Node node1 = Node(processingnode.row+1,2*processingnode.numinrow);
@@ -630,160 +580,25 @@ int main(int argc, const char * argv[]) {
       //Now setup each scenario for the two new nodes
       basemodel->set(GRB_IntParam_ScenarioNumber, 0);
       //Removing all previous bound changes from the model.
-      /*
-      for (int i = 0; i < Pnum; ++i)
-      {
-         for (int j = 0; j < Psnum[i]; ++j)
-         {
-            z2[i][j].set(GRB_DoubleAttr_ScenNUB, GRB_UNDEFINED);
-            z2[i][j].set(GRB_DoubleAttr_ScenNLB, GRB_UNDEFINED);
-         }
-      }*/
       clear_scenario(z2,Pnum,Psnum);
       
       //now re-enter values for prior Branches. The fixed variable value is stored with the ij in BranchIndex, so we compute the previous ij
       input_tree_decisions(z2,node1.row,node1.numinrow,BranchIndex);
-      /*
-      long int bi_i = node1.row;
-      long int bi_j = node1.numinrow;
-      while (bi_i >= 1)
-      {
-         --bi_i;
-         if (bi_j %2 == 1)
-         {
-            --bi_j;
-         }
-         bi_j /= 2;
-         if (BranchIndex[bi_i][bi_j].setval == 1)
-         {
-            z2[BranchIndex[bi_i][bi_j].iindex][BranchIndex[bi_i][bi_j].jindex].set(GRB_DoubleAttr_ScenNLB, 1);
-         }
-         else
-         {
-            z2[BranchIndex[bi_i][bi_j].iindex][BranchIndex[bi_i][bi_j].jindex].set(GRB_DoubleAttr_ScenNUB, 0);
-         }
-      }*/
          
       //Repeat all for second scenario
       basemodel->set(GRB_IntParam_ScenarioNumber, 1);
-      /*
-      for (int i = 0; i < Pnum; ++i)
-      {
-         for (int j = 0; j < Psnum[i]; ++j)
-         {
-            z2[i][j].set(GRB_DoubleAttr_ScenNUB, GRB_UNDEFINED);
-            z2[i][j].set(GRB_DoubleAttr_ScenNLB, GRB_UNDEFINED);
-         }
-      }*/
       clear_scenario(z2,Pnum,Psnum);
       input_tree_decisions(z2,node2.row,node2.numinrow,BranchIndex);
-      /*
-      bi_i = node2.row;
-      bi_j = node2.numinrow;
-      while (bi_i >= 1)
-      {
-         --bi_i;
-         if (bi_j %2 == 1)
-         {
-            --bi_j;
-         }
-         bi_j /= 2;
-         if (BranchIndex[bi_i][bi_j].setval == 1)
-         {
-            z2[BranchIndex[bi_i][bi_j].iindex][BranchIndex[bi_i][bi_j].jindex].set(GRB_DoubleAttr_ScenNLB, 1);
-         }
-         else
-         {
-            z2[BranchIndex[bi_i][bi_j].iindex][BranchIndex[bi_i][bi_j].jindex].set(GRB_DoubleAttr_ScenNUB, 0);
-         }
-      }*/
       //Removing the processing node from the tree can be done any time after processing is complete and before adding new nodes
       Tree_to_Process.pop_back();
 
       //Solve the scenarios together
       basemodel->optimize();
+      //Process results of current scenario = 1
       process_LPstatus(basemodel->get(GRB_IntAttr_Status), node2, bestbound, z2, Pnum, Psnum, tol, Best_Found_Solution, Tree_to_Process, basemodel);
-      /*
-      int scenstatus = basemodel->get(GRB_IntAttr_Status);
-      if (scenstatus == 2) //Optimal Solution to LP Reached
-      {
-         node2.bound = basemodel->get(GRB_DoubleAttr_ScenNObjVal);
-         std::cout << node2.bound <<std::endl;
-            
-         if (node2.bound > bestbound)
-         {
-            //Then check for integrality
-            // If integral, new best solution found
-            if (check_integral(z2,Pnum,Psnum,tol))
-            {
-               bestbound = node2.bound;
-               for (int i = 0; i < Pnum; ++i)
-               {
-                  for (int j = 0; j < Psnum[i]; ++j)
-                  {
-                     Best_Found_Solution[i][j] = z2[i][j].get(GRB_DoubleAttr_X);
-                  }
-               }
-            }
-            else // If non-integral, add to tree for branching
-            {
-               node2.is_leaf = 1;
-               Tree_to_Process.push_back(node2);
-            }
-         }
-      }
-      else if (scenstatus == 3 or scenstatus == 4) //LP Infeasible or Infeasible/Unbounded, should be infeasible
-      {
-         node2.bound = 0;
-         node2.is_leaf = 0;
-      }
-      else
-      {
-         std::cout << "Unexpected Scenario Status Reached: Status " << scenstatus << std::endl;
-         return -1;
-      }*/
-
-         
+      //Switch to other scenario and process
       basemodel->set(GRB_IntParam_ScenarioNumber, 0);
       process_LPstatus(basemodel->get(GRB_IntAttr_Status), node1, bestbound, z2, Pnum, Psnum, tol, Best_Found_Solution, Tree_to_Process, basemodel);
-      /*
-      scenstatus =basemodel->get(GRB_IntAttr_Status);
-      if ( scenstatus == 2)
-      {
-         node1.bound = basemodel->get(GRB_DoubleAttr_ScenNObjVal);
-         std::cout << node1.bound <<std::endl;
-         
-         if (node1.bound > bestbound)
-         {
-            // If integral, new best solution found
-            if (check_integral(z2,Pnum,Psnum,tol))
-            {
-               bestbound = node1.bound;
-               for (int i = 0; i < Pnum; ++i)
-               {
-                  for (int j = 0; j < Psnum[i]; ++j)
-                  {
-                     Best_Found_Solution[i][j] = z2[i][j].get(GRB_DoubleAttr_X);
-                  }
-               }
-            }
-            else // If non-integral, add to tree for branching
-            {
-               node1.is_leaf = 1;
-               Tree_to_Process.push_back(node1);
-            }
-         }
-      }
-      else if (scenstatus == 3 or scenstatus == 4) //LP Infeasible or Infeasible/Unbounded, should be infeasible
-      {
-         node1.bound = 0;
-         node1.is_leaf = 0;
-      }
-      else
-      {
-         std::cout << "Unexpected Scenario Status Reached: Status " << scenstatus << std::endl;
-         return -1;
-      }*/
    }
    
    std::cout << "Best found solution has value: " << bestbound << std::endl;
@@ -952,7 +767,11 @@ double objval3(const double * y, const double * lambda, std::vector< std::vector
 }
 
 //Function for checking if an LP solution is integral
-//Tolerance is set in main; using default 1e-4
+//function check_integral():
+//z2 Vector of Vector of GRB Variables from current scenario
+//Pnum number of measures
+//Psnum array of ints containing number of points per measure
+//Tolerance is set in main; could overload to use default 1e-4
 bool check_integral(std::vector<std::vector< GRBVar> > &z2, const int Pnum, const int *Psnum, const double &tol)
 {
    bool integral = true;
@@ -970,6 +789,11 @@ bool check_integral(std::vector<std::vector< GRBVar> > &z2, const int Pnum, cons
    return integral;
 }
 
+//For removing all previous modifications of a specific scenario. Surprisingly, could not find this functionality in Gurobi
+//Only need to reset UB/LB since our method does not modify the scenarios in other ways
+//z2 Vector of Vector of GRB Variables from current scenario
+//Pnum number of measures
+//Psnum array of ints containing number of points per measure
 int clear_scenario(std::vector<std::vector< GRBVar> > &z2, const int Pnum, const int *Psnum)
 {
    for (int i = 0; i < Pnum; ++i)
@@ -983,7 +807,12 @@ int clear_scenario(std::vector<std::vector< GRBVar> > &z2, const int Pnum, const
    return 0;
 }
 
-int input_tree_decisions(std::vector<std::vector< GRBVar> > &z2, int bi_i, int bi_j, std::vector< std::vector<ij> > &BranchIndex)
+//For inputting the prior decisions in the tree
+//z2 Vector of Vector of GRB Variables from current scenario
+//Pnum number of measures
+//Psnum array of ints containing number of points per measure
+//BranchIndex array of ij (struct) containing index, index j of variable z2 and the 0 or 1 decision for z2[i][j] at a particular row/index of tree
+int input_tree_decisions(std::vector<std::vector< GRBVar> > &z2, long int bi_i, long int bi_j, std::vector< std::vector<ij> > &BranchIndex)
 {
    if (bi_i <= 0)
    {
@@ -1016,6 +845,16 @@ int input_tree_decisions(std::vector<std::vector< GRBVar> > &z2, int bi_i, int b
    return 0;
 }
 
+//scenstatus: status code from Gurobi model. 2 is GRB_OPTIMAL, 3 and 4 will be returned for infeasible models, others may be due to time-outs
+//node: current node being tested in scenario
+//bestbound: transport cost associated with the best found integer solution
+//z2 Vector of Vector of GRB Variables from current scenario
+//Pnum number of measures
+//Psnum array of ints containing number of points per measure
+//Tol is small double value used in check_integral
+//Best_Found_Solution stores individual 0/1 decision for each variable of the best answer
+//Tree_to_Process contains unprocessed nodes
+//basemodel is Gurobi model of the IP
 int process_LPstatus(const int scenstatus, Node &node, double &bestbound, std::vector<std::vector< GRBVar> > &z2, const int Pnum, const int *Psnum, const double tol, std::vector< std::vector<double> > &Best_Found_Solution, std::vector<Node> &Tree_to_Process, GRBModel* basemodel)
 {
    node.bound = basemodel->get(GRB_DoubleAttr_ScenNObjVal);

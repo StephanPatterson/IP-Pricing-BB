@@ -52,7 +52,7 @@
       </BuildableProductRunnable>
       <CommandLineArguments>
          <CommandLineArgument
-            argument = "Hello"
+            argument = "/Users/spatterson/ForXcode/Barycenter/DenverCrime.csv"
             isEnabled = "YES">
          </CommandLineArgument>
       </CommandLineArguments>
