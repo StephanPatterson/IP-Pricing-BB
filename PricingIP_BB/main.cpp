@@ -167,61 +167,9 @@ int main(int argc, const char * argv[]) {
    }
    std::cout << "Size of S0: " << S0 << std::endl;
 
-   //The ultimate goal is to not compute and store all these costs, as it is exponential in size
-   //In this file, these are not necessary; only the c's for the initial greedy solution are computed
-//   std::vector<double> c(S0,0);
-
-   /*
-   for (unsigned long int j = 0; j < S0; ++j)
-   {
-      double sum1 = 0;
-      double sum2 = 0;
-      for (int i = 0; i < Pnum; ++i)
-      {
-         index = indices[i];
-         sum1 += lambda[i]*PsuppT[i][index].loc1;
-         sum2 += lambda[i]*PsuppT[i][index].loc2;
-      }
-      
-      //Pbar0 is the optimal location for minimum transport cost to the current combination of support points
-      //Now compute the transport cost from Pbar0 to the support points in the combination
-      SuppPt Pbar0 = SuppPt(sum1, sum2, 0.0);
-      for (int i = 0; i < Pnum; ++i)
-      {
-         index = indices[i];
-         c[j] += lambda[i]*((Pbar0.loc1-PsuppT[i][index].loc1)*(Pbar0.loc1-PsuppT[i][index].loc1) +(Pbar0.loc2-PsuppT[i][index].loc2)*(Pbar0.loc2-PsuppT[i][index].loc2));
-      }
-         
-      //Adjust indices of the combination
-      int k = Pnum-1;
-      //If the support point in the last measure is not the last one, move to next
-      if (indices[k] < Psnum[k]-1)
-      {
-         ++indices[k];
-      }
-      else //If it is the last support point, track backwards to the last measure which is not at the last support point
-      {
-         int temp = k-1;
-         while (temp >= 0)
-         {
-            if (indices[temp] == Psnum[temp]-1)
-            {
-               temp -= 1;
-            }
-            else
-            {
-               //Move that support point to the next index
-               ++indices[temp];
-               break;
-            }
-         }
-         for (int l = k; l > temp; --l)
-         {
-            //Then reset all later measures to the first support point
-            indices[l] = 0;
-         }
-      }
-   }*/
+   //The ultimate goal is to not compute and store all of the cost vector c, as it is exponential in size
+   //In this file, all c's are not necessary
+   //Computation is done later as part of generating greedy solution, only place needed
    
    //Reset to the first support point of each measure
    //Next used in generating an initial feasible solution (greedy)
