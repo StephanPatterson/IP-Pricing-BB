@@ -55,6 +55,10 @@
             argument = "/Users/spatterson/ForXcode/Barycenter/DenverCrime.csv"
             isEnabled = "YES">
          </CommandLineArgument>
+         <CommandLineArgument
+            argument = "/Users/spatterson/ForXcode/PricingIP_InitialResults.txt"
+            isEnabled = "YES">
+         </CommandLineArgument>
       </CommandLineArguments>
    </LaunchAction>
    <ProfileAction

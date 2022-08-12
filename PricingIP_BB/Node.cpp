@@ -21,3 +21,8 @@ Node::Node(const long int r, const long int nir): bound(0), is_leaf(1), row(r), 
 {
    
 }
+
+Node::Node(const double b, const int i, const long int r, const long int nir, const int iindex, const int jindex): bound(b), is_leaf(i), row(r), numinrow(nir), nexti(iindex), nextj(jindex)
+{
+   
+}
