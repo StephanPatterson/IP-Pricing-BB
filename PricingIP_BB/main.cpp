@@ -36,7 +36,9 @@ struct ij
 double objval(const double *, const double *, std::vector< std::vector< SuppPt> >&, std::vector<std::vector<double> >&, const int, const int *);
 double objval2(const double *, const double *, std::vector< std::vector< SuppPt> >&, std::vector<std::vector<double> >&, const int, const int *);
 double objval3(const double *, const double *, std::vector< std::vector< SuppPt> >&, std::vector<std::vector<GRBVar> >&, std::vector<std::vector<std::vector<std::vector<GRBVar> > > >&, const int, const int *);
-bool check_integral(std::vector<std::vector< GRBVar> > &, const int, const int *, const double &);
+bool check_integral_X(std::vector<std::vector< GRBVar> > &, const int, const int *, const double &);
+bool check_integral_NX(std::vector<std::vector< GRBVar> > &, const int, const int *, const double &);
+
 int clear_scenario(std::vector<std::vector< GRBVar> > &z2, const int Pnum, const int *Psnum);
 int input_tree_decisions(std::vector<std::vector< GRBVar> > &, long int , long int , std::vector< std::vector<ij> > &);
 int process_LPstatus(const int , Node &, double &, std::vector<std::vector< GRBVar> > &, const int , const int *, const double , std::vector< std::vector<double> > &, std::vector<Node> &, GRBModel* );
@@ -47,6 +49,7 @@ int find_ClosestToInt(std::vector<std::vector< GRBVar> > &, const int , const in
 int count_RepeatedValues(std::vector<std::vector< GRBVar> > &, const int, const int *, const double &);
 int count_RepeatedValues(std::vector<std::vector< GRBVar> > &, const int, const int * , const double &, std::vector<double> &, std::vector<int> &);
 int find_FirstRepeated(const std::vector< std::vector< GRBVar> > &, const int &, const int * , const double &, int & , int &);
+void print_solution(const int &, const int *, std::vector< std::vector<GRBVar > > &  );
 
 int main(int argc, const char * argv[]) {
    
@@ -62,7 +65,7 @@ int main(int argc, const char * argv[]) {
    double lambda[Pnum];
    bool init_to_file = false; //if true, will count fractional values for the initial LP solve and write to file.
    int sort_measures = 1; // 0 = no sort, 1 = smallest first (recommended for index orders), 2 = largest first
-   int branchstrat = 2; // How to choose the next nodes going onto the tree
+   int branchstrat = 1; // How to choose the next nodes going onto the tree
    //1 = next index of measure/support point;
    //2 = index of closest to integer;
    //3 = first index of most repeated value;
@@ -232,7 +235,7 @@ int main(int argc, const char * argv[]) {
    model->set(GRB_IntParam_Method, 0);
    model->set(GRB_IntParam_Presolve, 0);
    model->set(GRB_IntAttr_ModelSense, GRB_MINIMIZE);
-//   model->set(GRB_IntParam_OutputFlag, 0); //Turning off display on screen. Disable to see iterations, objective value, etc.
+   model->set(GRB_IntParam_OutputFlag, 0); //Turning off display on screen. Disable to see iterations, objective value, etc.
    
    std::vector< GRBVar > w;
    GRBLinExpr  exp[totalsupp];
@@ -342,6 +345,8 @@ int main(int argc, const char * argv[]) {
    GRBModel* basemodel = new GRBModel(*env);
    basemodel->set(GRB_IntParam_Method, 0);
    basemodel->set(GRB_IntAttr_ModelSense, -1);//set to maximize
+   basemodel->set(GRB_IntParam_OutputFlag, 0); //Turning off display on screen. Disable to see iterations, objective value, etc.
+
 
    //For storing the best integer solution
    std::vector<std::vector<double> > Best_Found_Solution(Pnum);
@@ -473,7 +478,7 @@ int main(int argc, const char * argv[]) {
    //Can use the solution to this intial solve for the part of paper talking about how fractional the vertices are
    if (basemodel->get(GRB_IntAttr_Status) == 2)
    {
-      if (check_integral(z2,Pnum,Psnum,tol))
+      if (check_integral_X(z2,Pnum,Psnum,tol))
       {
          std::cout << "Initial Linear Program produces integral solution. No Branch & Bound required." <<std::endl;
          return 0;
@@ -569,17 +574,44 @@ int main(int argc, const char * argv[]) {
    Node node1 = Node(1,0);
    BranchIndex[1][0] = ij(0,0,0);
    z2[0][0].set(GRB_DoubleAttr_ScenNUB, 0);
-   
+//   GRBVar * vars4 = basemodel->getVars();
+//   vars4[0].set(GRB_DoubleAttr_ScenNUB, 0);
+
    basemodel->set(GRB_IntParam_ScenarioNumber, 1);
    Node node2 = Node(1,1);
    BranchIndex[1][1] = ij(0,0,1);
    z2[0][0].set(GRB_DoubleAttr_ScenNLB, 1);
+//   GRBVar * vars3 = basemodel->getVars();
+//   vars3[0].set(GRB_DoubleAttr_ScenNLB, 1);
    
    basemodel->optimize();
+   
+   //basemodel->set(GRB_IntParam_ScenarioNumber, 2);
+
+   std::cout << "Printing for scenario 1: " <<std::endl;
+   if (basemodel->get(GRB_IntAttr_Status) == 2)
+   {
+      print_solution(Pnum, Psnum, z2);
+   }
+   else
+   {
+      std::cout << "Infeasible Scenario. " <<std::endl;
+   }
    process_LPstatus(basemodel->get(GRB_IntAttr_Status), node2, bestbound, z2, Pnum, Psnum, tol, Best_Found_Solution, Tree_to_Process, basemodel, integernodes, trimmedbybound, branchstrat);
+   
 
    basemodel->set(GRB_IntParam_ScenarioNumber, 0);
    process_LPstatus(basemodel->get(GRB_IntAttr_Status), node1, bestbound, z2, Pnum, Psnum, tol, Best_Found_Solution, Tree_to_Process, basemodel, integernodes, trimmedbybound, branchstrat);
+   std::cout << "Printing for scenario 0: " <<std::endl;
+   if (basemodel->get(GRB_IntAttr_Status) == 2)
+   {
+      print_solution(Pnum, Psnum, z2);
+   }
+   else
+   {
+      std::cout << "Infeasible Scenario. " <<std::endl;
+   }
+   
 
    //Now choose new node
    //while Tree vector isn't empty
@@ -618,7 +650,7 @@ int main(int argc, const char * argv[]) {
       Node node1 = Node(processingnode.row+1,2*processingnode.numinrow);
       Node node2 = Node(processingnode.row+1,2*processingnode.numinrow+1);
          
-      std::cout << processingnode.row <<std::endl;
+      std::cout << "Processing node row number: " << processingnode.row <<std::endl;
       
       //If working with a new row of the tree, allocate space
       if (!allocate_before)
@@ -683,6 +715,7 @@ int main(int argc, const char * argv[]) {
       basemodel->set(GRB_IntParam_ScenarioNumber, 1);
       clear_scenario(z2,Pnum,Psnum);
       input_tree_decisions(z2,node2.row,node2.numinrow,BranchIndex);
+      
       //Removing the processing node from the tree can be done any time after processing is complete and before adding new nodes
       Tree_to_Process.pop_back();
 
@@ -690,9 +723,29 @@ int main(int argc, const char * argv[]) {
       basemodel->optimize();
       //Process results of current scenario = 1
       process_LPstatus(basemodel->get(GRB_IntAttr_Status), node2, bestbound, z2, Pnum, Psnum, tol, Best_Found_Solution, Tree_to_Process, basemodel, integernodes, trimmedbybound, branchstrat);
+      
+      std::cout << "Printing for scenario 1: " <<std::endl;
+      if (basemodel->get(GRB_IntAttr_Status) == 2)
+      {
+         print_solution(Pnum, Psnum, z2);
+      }
+      else
+      {
+         std::cout << "Infeasible Scenario. " <<std::endl;
+      }
       //Switch to other scenario and process
       basemodel->set(GRB_IntParam_ScenarioNumber, 0);
       process_LPstatus(basemodel->get(GRB_IntAttr_Status), node1, bestbound, z2, Pnum, Psnum, tol, Best_Found_Solution, Tree_to_Process, basemodel, integernodes, trimmedbybound, branchstrat);
+      
+      std::cout << "Printing for scenario 0: " <<std::endl;
+      if (basemodel->get(GRB_IntAttr_Status) == 2)
+      {
+         print_solution(Pnum, Psnum, z2);
+      }
+      else
+      {
+         std::cout << "Infeasible Scenario." <<std::endl;
+      }
 
       std::cout << "End of loop: " << node1.row << " " << node1.numinrow <<std::endl;
    }
@@ -869,7 +922,7 @@ double objval3(const double * y, const double * lambda, std::vector< std::vector
 //Pnum number of measures
 //Psnum array of ints containing number of points per measure
 //Tolerance is set in main; could overload to use default 1e-4
-bool check_integral(std::vector<std::vector< GRBVar> > &z2, const int Pnum, const int *Psnum, const double &tol)
+bool check_integral_X(std::vector<std::vector< GRBVar> > &z2, const int Pnum, const int *Psnum, const double &tol)
 {
    bool integral = true;
    for (int i = 0; i < Pnum; ++i)
@@ -877,6 +930,29 @@ bool check_integral(std::vector<std::vector< GRBVar> > &z2, const int Pnum, cons
       for (int j = 0; j < Psnum[i]; ++j)
       {
          if (z2[i][j].get(GRB_DoubleAttr_X) <= 1-tol && z2[i][j].get(GRB_DoubleAttr_X) >= tol)
+         {
+            integral = false;
+            return integral;
+         }
+      }
+   }
+   return integral;
+}
+
+//Function for checking if an LP solution is integral
+//function check_integral():
+//z2 Vector of Vector of GRB Variables from current scenario
+//Pnum number of measures
+//Psnum array of ints containing number of points per measure
+//Tolerance is set in main; could overload to use default 1e-4
+bool check_integral_NX(std::vector<std::vector< GRBVar> > &z2, const int Pnum, const int *Psnum, const double &tol)
+{
+   bool integral = true;
+   for (int i = 0; i < Pnum; ++i)
+   {
+      for (int j = 0; j < Psnum[i]; ++j)
+      {
+         if (z2[i][j].get(GRB_DoubleAttr_ScenNX) <= 1-tol && z2[i][j].get(GRB_DoubleAttr_ScenNX) >= tol)
          {
             integral = false;
             return integral;
@@ -912,18 +988,18 @@ int find_ClosestToInt(std::vector<std::vector< GRBVar> > &z2, const int Pnum, co
    {
       for (int j = 0; j < Psnum[i]; ++j)
       {
-         double difffrom1 =1-z2[i][j].get(GRB_DoubleAttr_X);
+         double difffrom1 =1-z2[i][j].get(GRB_DoubleAttr_ScenNX);
          if (difffrom1 > tol && difffrom1 < diff)
          {
             iindex = i;
             jindex = j;
             diff = difffrom1;
          }
-         else if (z2[i][j].get(GRB_DoubleAttr_X)>tol && z2[i][j].get(GRB_DoubleAttr_X)<diff)
+         else if (z2[i][j].get(GRB_DoubleAttr_ScenNX)>tol && z2[i][j].get(GRB_DoubleAttr_ScenNX)<diff)
          {
             iindex = i;
             jindex = j;
-            diff = z2[i][j].get(GRB_DoubleAttr_X);
+            diff = z2[i][j].get(GRB_DoubleAttr_ScenNX);
          }
       }
    }
@@ -988,14 +1064,14 @@ int process_LPstatus(const int scenstatus, Node &node, double &bestbound, std::v
    {
       //Then check for integrality
       // If integral, new best solution found
-      if (check_integral(z2,Pnum,Psnum,tol))
+      if (check_integral_NX(z2,Pnum,Psnum,tol))
       {
          bestbound = node.bound;
          for (int i = 0; i < Pnum; ++i)
          {
             for (int j = 0; j < Psnum[i]; ++j)
             {
-               Best_Found_Solution[i][j] = z2[i][j].get(GRB_DoubleAttr_X);
+               Best_Found_Solution[i][j] = z2[i][j].get(GRB_DoubleAttr_ScenNX);
             }
          }
       }
@@ -1028,7 +1104,7 @@ int process_LPstatus(const int scenstatus, Node &node, double &bestbound, std::v
    {
       //Then check for integrality
       // If integral, new best solution found
-      if (check_integral(z2,Pnum,Psnum,tol))
+      if (check_integral_NX(z2,Pnum,Psnum,tol))
       {
          ++integercount;
          bestbound = node.bound;
@@ -1036,7 +1112,7 @@ int process_LPstatus(const int scenstatus, Node &node, double &bestbound, std::v
          {
             for (int j = 0; j < Psnum[i]; ++j)
             {
-               Best_Found_Solution[i][j] = z2[i][j].get(GRB_DoubleAttr_X);
+               Best_Found_Solution[i][j] = z2[i][j].get(GRB_DoubleAttr_ScenNX);
             }
          }
       }
@@ -1075,39 +1151,42 @@ int process_LPstatus(const int scenstatus, Node &node, double &bestbound, std::v
 //branchstrat is integer indicator of how to choose the next node from the current solution
 int process_LPstatus(const int scenstatus, Node &node, double &bestbound, std::vector<std::vector< GRBVar> > &z2, const int Pnum, const int *Psnum, const double tol, std::vector< std::vector<double> > &Best_Found_Solution, std::vector<Node> &Tree_to_Process, GRBModel* basemodel, const int &branchstrat)
 {
-   node.bound = basemodel->get(GRB_DoubleAttr_ScenNObjVal);
+   if (scenstatus == 2)
+   {
+      node.bound = basemodel->get(GRB_DoubleAttr_ScenNObjVal);
 //   std::cout << node.bound <<std::endl;
          
-   if (node.bound > bestbound)
-   {
-      //Then check for integrality
-      // If integral, new best solution found
-      if (check_integral(z2,Pnum,Psnum,tol))
+      if (node.bound > bestbound)
       {
-         bestbound = node.bound;
-         for (int i = 0; i < Pnum; ++i)
+         //Then check for integrality
+         // If integral, new best solution found
+         if (check_integral_NX(z2,Pnum,Psnum,tol))
          {
-            for (int j = 0; j < Psnum[i]; ++j)
+            bestbound = node.bound;
+            for (int i = 0; i < Pnum; ++i)
             {
-               Best_Found_Solution[i][j] = z2[i][j].get(GRB_DoubleAttr_X);
+               for (int j = 0; j < Psnum[i]; ++j)
+               {
+                  Best_Found_Solution[i][j] = z2[i][j].get(GRB_DoubleAttr_ScenNX);
+               }
             }
          }
-      }
-      else // If non-integral, add to tree for branching
-      {
-         node.is_leaf = 1;
-         //Additional code to choose next branch goes here
-         if (branchstrat == 2)
+         else // If non-integral, add to tree for branching
          {
-            find_ClosestToInt(z2, Pnum, Psnum, tol, node.nexti, node.nextj);
-         }
-         else if (branchstrat == 3)
-         {
-            find_FirstRepeated(z2, Pnum, Psnum, tol, node.nexti, node.nextj);
-         }
+            node.is_leaf = 1;
+            //Additional code to choose next branch goes here
+            if (branchstrat == 2)
+            {
+               find_ClosestToInt(z2, Pnum, Psnum, tol, node.nexti, node.nextj);
+            }
+            else if (branchstrat == 3)
+            {
+               find_FirstRepeated(z2, Pnum, Psnum, tol, node.nexti, node.nextj);
+            }
 
-         Tree_to_Process.push_back(node);
-         
+            Tree_to_Process.push_back(node);
+            
+         }
       }
    }
    else if (scenstatus == 3 or scenstatus == 4) //LP Infeasible or Infeasible/Unbounded, should be infeasible
@@ -1126,40 +1205,43 @@ int process_LPstatus(const int scenstatus, Node &node, double &bestbound, std::v
 //version to also count if the node is integer, trimmed due to bound, and stores branching information
 int process_LPstatus(const int scenstatus, Node &node, double &bestbound, std::vector<std::vector< GRBVar> > &z2, const int Pnum, const int *Psnum, const double tol, std::vector< std::vector<double> > &Best_Found_Solution, std::vector<Node> &Tree_to_Process, GRBModel* basemodel, int &integercount, int &trimmedbybound, const int &branchstrat)
 {
-   node.bound = basemodel->get(GRB_DoubleAttr_ScenNObjVal);
-//   std::cout << node.bound <<std::endl;
-         
-   if (node.bound > bestbound)
+   if (scenstatus == 2)
    {
-      //Then check for integrality
-      // If integral, new best solution found
-      if (check_integral(z2,Pnum,Psnum,tol))
+      node.bound = basemodel->get(GRB_DoubleAttr_ScenNObjVal);
+   //   std::cout << node.bound <<std::endl;
+            
+      if (node.bound > bestbound)
       {
-         ++integercount;
-         bestbound = node.bound;
-         for (int i = 0; i < Pnum; ++i)
+         //Then check for integrality
+         // If integral, new best solution found
+         if (check_integral_NX(z2,Pnum,Psnum,tol))
          {
-            for (int j = 0; j < Psnum[i]; ++j)
+            ++integercount;
+            bestbound = node.bound;
+            for (int i = 0; i < Pnum; ++i)
             {
-               Best_Found_Solution[i][j] = z2[i][j].get(GRB_DoubleAttr_X);
+               for (int j = 0; j < Psnum[i]; ++j)
+               {
+                  Best_Found_Solution[i][j] = z2[i][j].get(GRB_DoubleAttr_ScenNX);
+               }
             }
          }
-      }
-      else // If non-integral, add to tree for branching
-      {
-         node.is_leaf = 1;
-         //Additional code to choose next branch goes here
-         if (branchstrat == 2)
+         else // If non-integral, add to tree for branching
          {
-            find_ClosestToInt(z2, Pnum, Psnum, tol, node.nexti, node.nextj);
-         }
-         else if (branchstrat == 3)
-         {
-            find_FirstRepeated(z2, Pnum, Psnum, tol, node.nexti, node.nextj);
-         }
-         std::cout << node.nexti << " " << node.nextj <<std::endl;
+            node.is_leaf = 1;
+            //Additional code to choose next branch goes here
+            if (branchstrat == 2)
+            {
+               find_ClosestToInt(z2, Pnum, Psnum, tol, node.nexti, node.nextj);
+            }
+            else if (branchstrat == 3)
+            {
+               find_FirstRepeated(z2, Pnum, Psnum, tol, node.nexti, node.nextj);
+            }
+   //         std::cout << node.nexti << " " << node.nextj <<std::endl;
 
-         Tree_to_Process.push_back(node);
+            Tree_to_Process.push_back(node);
+         }
       }
    }
    else if (scenstatus == 3 or scenstatus == 4) //LP Infeasible or Infeasible/Unbounded, should be infeasible
@@ -1190,12 +1272,12 @@ int count_RepeatedValues(std::vector<std::vector< GRBVar> > &z2, const int Pnum,
    {
       for (int j = 0; j < Psnum[i]; ++j)
       {
-         std::cout << "Measure " << i << " Point " << j << " Value " << z2[i][j].get(GRB_DoubleAttr_X) <<std::endl;
+         std::cout << "Measure " << i << " Point " << j << " Value " << z2[i][j].get(GRB_DoubleAttr_ScenNX) <<std::endl;
          bool new_num = true;
          int count = 0;
          for (unit = uniquenums.begin(); unit != uniquenums.end(); ++unit)
          {
-            if (z2[i][j].get(GRB_DoubleAttr_X) >= *unit-tol && z2[i][j].get(GRB_DoubleAttr_X) <= *unit+tol)
+            if (z2[i][j].get(GRB_DoubleAttr_ScenNX) >= *unit-tol && z2[i][j].get(GRB_DoubleAttr_ScenNX) <= *unit+tol)
             {
                new_num = false;
                ++uniquecount[count];
@@ -1204,7 +1286,7 @@ int count_RepeatedValues(std::vector<std::vector< GRBVar> > &z2, const int Pnum,
          }
          if (new_num)
          {
-            uniquenums.push_back(z2[i][j].get(GRB_DoubleAttr_X));
+            uniquenums.push_back(z2[i][j].get(GRB_DoubleAttr_ScenNX));
             uniquecount.push_back(1);
          }
       }
@@ -1232,7 +1314,7 @@ int count_RepeatedValues(std::vector<std::vector< GRBVar> > &z2, const int Pnum,
          int count = 0;
          for (unit = uniquenums.begin(); unit != uniquenums.end(); ++unit)
          {
-            if (z2[i][j].get(GRB_DoubleAttr_X) >= *unit-tol && z2[i][j].get(GRB_DoubleAttr_X) <= *unit+tol)
+            if (z2[i][j].get(GRB_DoubleAttr_ScenNX) >= *unit-tol && z2[i][j].get(GRB_DoubleAttr_ScenNX) <= *unit+tol)
             {
                new_num = false;
                ++uniquecount[count];
@@ -1241,7 +1323,7 @@ int count_RepeatedValues(std::vector<std::vector< GRBVar> > &z2, const int Pnum,
          }
          if (new_num)
          {
-            uniquenums.push_back(z2[i][j].get(GRB_DoubleAttr_X));
+            uniquenums.push_back(z2[i][j].get(GRB_DoubleAttr_ScenNX));
             uniquecount.push_back(1);
          }
       }
@@ -1264,11 +1346,11 @@ int find_FirstRepeated(const std::vector< std::vector< GRBVar> > &z2, const int 
       {
          bool new_num = true;
          int count = 0;
-         if (z2[i][j].get(GRB_DoubleAttr_X) >= tol && z2[i][j].get(GRB_DoubleAttr_X) <= 1-tol)
+         if (z2[i][j].get(GRB_DoubleAttr_ScenNX) >= tol && z2[i][j].get(GRB_DoubleAttr_ScenNX) <= 1-tol)
          {
             for (unit = uniquenums.begin(); unit != uniquenums.end(); ++unit)
             {
-               if (z2[i][j].get(GRB_DoubleAttr_X) >= *unit-tol && z2[i][j].get(GRB_DoubleAttr_X) <= *unit+tol)
+               if (z2[i][j].get(GRB_DoubleAttr_ScenNX) >= *unit-tol && z2[i][j].get(GRB_DoubleAttr_ScenNX) <= *unit+tol)
                {
                   new_num = false;
                   ++uniquecount[count];
@@ -1279,7 +1361,7 @@ int find_FirstRepeated(const std::vector< std::vector< GRBVar> > &z2, const int 
             {
                first_of_each_value.push_back(ij(i,j,0));
                std::cout <<first_of_each_value[count].iindex << " " << first_of_each_value[count].jindex  << std::endl;
-               uniquenums.push_back(z2[i][j].get(GRB_DoubleAttr_X));
+               uniquenums.push_back(z2[i][j].get(GRB_DoubleAttr_ScenNX));
                uniquecount.push_back(1);
             }
          }
@@ -1293,4 +1375,16 @@ int find_FirstRepeated(const std::vector< std::vector< GRBVar> > &z2, const int 
    std::cout << "In search: " <<iindex << " " <<jindex <<std::endl;
    
    return 0;
+}
+
+void print_solution(const int &Pnum, const int * Psnum, std::vector< std::vector<GRBVar > > &current_sol  )
+{
+   for (int i = 0; i < Pnum; ++i)
+   {
+     for (int j = 0; j < Psnum[i]; ++j)
+     {
+        std:: cout << "Measure: "<< i << " Point: " << j << " Value: " << current_sol[i][j].get(GRB_DoubleAttr_ScenNX) << std::endl;
+     }
+   }
+   std::cout << std::endl;
 }
