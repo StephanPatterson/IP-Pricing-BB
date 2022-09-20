@@ -5,9 +5,10 @@
 //  Created by StephanP on 5/16/22.
 //  This version is for implementing Branch & Bound by hand, for experimenting with choices like node selection
 
-#include "SuppPt.hpp"
 #include "Node.hpp"
 #include "/Library/gurobi951/macos_universal2/include/gurobi_c++.h"
+#include "SuppPt.hpp"
+
 #include <iostream>
 #include <fstream>
 #include <vector>
@@ -44,16 +45,23 @@ int input_tree_decisions(std::vector<std::vector< GRBVar> > &, long int , long i
 int process_LPstatus(const int , Node &, double &, std::vector<std::vector< GRBVar> > &, const int , const int *, const double , std::vector< std::vector<double> > &, std::vector<Node> &, GRBModel* );
 int process_LPstatus(const int , Node &, double &, std::vector<std::vector< GRBVar> > &, const int , const int *, const double , std::vector< std::vector<double> > &, std::vector<Node> &, GRBModel*, int &, int & );
 int process_LPstatus(const int , Node &, double &, std::vector<std::vector< GRBVar> > &, const int , const int *, const double , std::vector< std::vector<double> > &, std::vector<Node> &, GRBModel* , const int &);
-int process_LPstatus(const int , Node &, double &, std::vector<std::vector< GRBVar> > &, const int , const int *, const double , std::vector< std::vector<double> > &, std::vector<Node> &, GRBModel*, int &, int &, const int & );
-int find_ClosestToInt(std::vector<std::vector< GRBVar> > &, const int , const int *, const double &, int &, int &);
+int process_LPstatus(const int , Node &, double &, std::vector<std::vector< GRBVar> > &, const int , const int *, const double , std::vector< std::vector<double> > &, std::vector<Node> &, GRBModel*, int &, int &, int &, const int & );
+int find_ClosestToInt(std::vector<std::vector< GRBVar> > &, const int , const int *, const double &, long int &, long int &);
 int count_RepeatedValues(std::vector<std::vector< GRBVar> > &, const int, const int *, const double &);
 int count_RepeatedValues(std::vector<std::vector< GRBVar> > &, const int, const int * , const double &, std::vector<double> &, std::vector<int> &);
-int find_FirstRepeated(const std::vector< std::vector< GRBVar> > &, const int &, const int * , const double &, int & , int &);
+int find_FirstRepeated(const std::vector< std::vector< GRBVar> > &, const int &, const int * , const double &, long int & , long int &);
+void print_solution_all(const int &, const int *, std::vector< std::vector<GRBVar > > &  );
 void print_solution(const int &, const int *, std::vector< std::vector<GRBVar > > &  );
+void print_solution(const int &, const int *, std::vector< std::vector<double > > &  );
+bool check_statusInfeasible(double &, double &);
+
 
 int main(int argc, const char * argv[]) {
    
-   int Pnum = 4;//If NumMoMeas = 1, Number of months to process. Will go consecutively from start month, skipping any empty months.
+   auto start = std::chrono::steady_clock::now();
+   auto t = start;
+   
+   int Pnum = 5;//If NumMoMeas = 1, Number of months to process. Will go consecutively from start month, skipping any empty months.
    std::string startmonth = "Jul";//Three-digit code for month
    int startyear = 15;
    int NumMoMeas = 1;
@@ -64,6 +72,8 @@ int main(int argc, const char * argv[]) {
    //Now used primarily for tracking current index in each measure while creating initial solution (greedy)
    double lambda[Pnum];
    bool init_to_file = false; //if true, will count fractional values for the initial LP solve and write to file.
+   bool final_to_file = true; //will look for a file name in the 4th input; be careful if not also writing out the initial solution
+   bool display_solutions = false;
    int sort_measures = 1; // 0 = no sort, 1 = smallest first (recommended for index orders), 2 = largest first
    int branchstrat = 1; // How to choose the next nodes going onto the tree
    //1 = next index of measure/support point;
@@ -71,7 +81,6 @@ int main(int argc, const char * argv[]) {
    //3 = first index of most repeated value;
 
    const int branchstratsave = branchstrat;
-   bool allocate_before = true;
 
    std::string temp;
 
@@ -491,7 +500,6 @@ int main(int argc, const char * argv[]) {
             fname.str("");
             fname.clear();
             fname << argv[2];
-            std::cout << fname.str() << std::endl;
             outfile.open(fname.str(), std::fstream::in | std::fstream::out | std::fstream::app);
          }
          else
@@ -540,7 +548,6 @@ int main(int argc, const char * argv[]) {
             outfile << "Unique Solution Value: " <<uniquenums[i] << " with count " <<uniquecount[i] <<std::endl;
          }
          outfile.close();
-         return 0;
       }
    }
    
@@ -549,21 +556,19 @@ int main(int argc, const char * argv[]) {
    //So if you initially decide to branch on the variable that goes with the first support point of measure 3, BranchIndex[0][0] = (2,0), and BranchIndex[1][0] = (2,0,0) and BranchIndex[1][1] = (2,0,1)
    std::vector< std::vector< ij > > BranchIndex(totalsupp);//Pnum is the minimum number of rows to reach a feasible solution, and totalsupp the maximum
    //Experiment: preallocate plenty of space vs. Minimizing space utilized
-   //Potential Memory savings: don't allocate entire row of space? Would need to change
+   //Potential Memory savings: don't allocate entire row of space. Would need to change structure of retrieving previously implemented variable decisions
    BranchIndex[0].resize(1);
    BranchIndex[0][0]=ij(0,0,-1); //BranchIndex[0] is the initial decision. BranchIndex[1] will contain the two decisions from the first row, etc.
    BranchIndex[1].resize(2);
-   //If desired, allocate maximum memory needed prior to running loop
-   if (allocate_before)
+   //Allocate space prior to running loop
+   for (int i = 2; i < totalsupp; ++i)
    {
-      for (int i = 2; i < totalsupp; ++i)
-      {
-         long int rowsize = pow(2,i);
-         BranchIndex[i].resize(rowsize);
-      }
+      long int rowsize = pow(2,i);
+      BranchIndex[i].resize(rowsize);
    }
    int nodecount = 1;
    int trimmedbybound = 0;
+   int trimmedbyinf = 0;
    int integernodes = 0;
    
    //Begin setup of 2 scenarios for computing LPs for both child nodes
@@ -585,38 +590,73 @@ int main(int argc, const char * argv[]) {
 //   vars3[0].set(GRB_DoubleAttr_ScenNLB, 1);
    
    basemodel->optimize();
+   //Gurobi is not reporting status codes for individual scenarios.
+   //Our IP should either return optimal or infeasible
+   //These three items are for determining when a scenario is infeasible instead of optimal
+   double scenNObjBound = basemodel->get(GRB_DoubleAttr_ScenNObjBound);
+   double scenNObjVal = basemodel->get(GRB_DoubleAttr_ScenNObjVal);
+   int scenNStatus = basemodel->get(GRB_IntAttr_Status);;
    
    //basemodel->set(GRB_IntParam_ScenarioNumber, 2);
 
-   std::cout << "Printing for scenario 1: " <<std::endl;
-   if (basemodel->get(GRB_IntAttr_Status) == 2)
+   
+   if (scenNStatus == 2)
    {
-      print_solution(Pnum, Psnum, z2);
+      if (check_statusInfeasible(scenNObjBound, scenNObjVal))
+      {
+         if ( display_solutions)
+         {
+            std::cout << "Printing for scenario 1: " <<std::endl;
+            print_solution_all(Pnum, Psnum, z2);
+         }
+      }
+      else
+         scenNStatus = 3;
    }
    else
    {
-      std::cout << "Infeasible Scenario. " <<std::endl;
+      std::cout << "Scenario 1: Infeasible Scenario. " <<std::endl;
    }
-   process_LPstatus(basemodel->get(GRB_IntAttr_Status), node2, bestbound, z2, Pnum, Psnum, tol, Best_Found_Solution, Tree_to_Process, basemodel, integernodes, trimmedbybound, branchstrat);
+   process_LPstatus(scenNStatus, node2, bestbound, z2, Pnum, Psnum, tol, Best_Found_Solution, Tree_to_Process, basemodel, integernodes, trimmedbyinf, trimmedbybound, branchstrat);
    
 
    basemodel->set(GRB_IntParam_ScenarioNumber, 0);
-   process_LPstatus(basemodel->get(GRB_IntAttr_Status), node1, bestbound, z2, Pnum, Psnum, tol, Best_Found_Solution, Tree_to_Process, basemodel, integernodes, trimmedbybound, branchstrat);
-   std::cout << "Printing for scenario 0: " <<std::endl;
+   scenNObjBound = basemodel->get(GRB_DoubleAttr_ScenNObjBound);
+   scenNObjVal = basemodel->get(GRB_DoubleAttr_ScenNObjVal);
+   scenNStatus = basemodel->get(GRB_IntAttr_Status);
    if (basemodel->get(GRB_IntAttr_Status) == 2)
    {
-      print_solution(Pnum, Psnum, z2);
+      if (check_statusInfeasible(scenNObjBound, scenNObjVal))
+      {
+         if ( display_solutions)
+         {
+            std::cout << "Printing for scenario 0: " <<std::endl;
+            print_solution_all(Pnum, Psnum, z2);
+         }
+      }
+      else
+         scenNStatus = 3;
    }
    else
    {
-      std::cout << "Infeasible Scenario. " <<std::endl;
+      if (display_solutions)
+         std::cout << "Scenario 0: Infeasible Scenario. " <<std::endl;
    }
-   
+   process_LPstatus(scenNStatus, node1, bestbound, z2, Pnum, Psnum, tol, Best_Found_Solution, Tree_to_Process, basemodel, integernodes, trimmedbyinf, trimmedbybound, branchstrat);
+
+   int maxiter = 100000;
+   int iter = 0;
 
    //Now choose new node
    //while Tree vector isn't empty
    while (!Tree_to_Process.empty())
    {
+      ++iter;
+      if (iter >= maxiter)
+      {
+         std::cout << "Maximum iterations reached." <<std::endl;
+         break;
+      }
       Node processingnode;
       bool no_improving_node= false;
       bool finding_next_node = true;
@@ -637,6 +677,7 @@ int main(int argc, const char * argv[]) {
          }
          else
          {
+//            std::cout <<"Next node found: processing node " << processingnode.row << "," <<processingnode.numinrow << std::endl;
             finding_next_node = false;
          }
       }
@@ -650,27 +691,10 @@ int main(int argc, const char * argv[]) {
       Node node1 = Node(processingnode.row+1,2*processingnode.numinrow);
       Node node2 = Node(processingnode.row+1,2*processingnode.numinrow+1);
          
-      std::cout << "Processing node row number: " << processingnode.row <<std::endl;
-      
-      //If working with a new row of the tree, allocate space
-      if (!allocate_before)
-      {
-         if (BranchIndex.size() <= node1.row)
-         {
-            long int rowsize = pow(2,node1.row);
-            std::vector< ij > newvec(rowsize);
-            BranchIndex.push_back(newvec);
-         }
-      }
-      
-      /*
-      for (int i = 0; i < rowsize; ++i)
-         std::cout << BranchIndex[BranchIndex.size()-1][i].setval << std::endl;*/
-         
       ij newij;
       
       //Now decide a new [i][j] to branch on, if not already set when processing LP status
-      if (branchstrat == 1)
+/*      if (branchstrat == 1)
       {
          //This choice takes us in index order: (0,0), then (0,1), then (0,2), etc., eventually then going to (1,0), making the same choice across a particular row.
          if (BranchIndex[processingnode.row][processingnode.numinrow].jindex+1 < Psnum[BranchIndex[processingnode.row][processingnode.numinrow].iindex])
@@ -683,32 +707,30 @@ int main(int argc, const char * argv[]) {
             newij.jindex = 0;
             newij.iindex = BranchIndex[processingnode.row][processingnode.numinrow].iindex+1;
          }
+         std::cout << newij.iindex << " " <<newij.jindex <<std::endl;
       }
       else if (processingnode.nexti >= 0 && processingnode.nextj >= 0)
-      {
+      {*/
          newij.iindex = processingnode.nexti;
          newij.jindex = processingnode.nextj;
-      }
+/*      }
       else
       {
          std::cout << "Error in processing next node: choice of branch indices not set. " << std::endl;
          return 3;
-      }
-      
-      //Node 8/22: This is where the loop is breaking. Number of rows is exceeding totalsupp!
-      std::cout <<node1.row << " " <<node1.numinrow <<std::endl;
-      std::cout << BranchIndex[node1.row].size()<<std::endl;
+      }*/
+
       newij.setval = 0;
       BranchIndex[node1.row][node1.numinrow] = newij;
       newij.setval = 1;
       BranchIndex[node2.row][node2.numinrow] = newij;
-      std::cout << "Newij set. " <<std::endl;
       
       //Now setup each scenario for the two new nodes
       basemodel->set(GRB_IntParam_ScenarioNumber, 0);
+      
       //Removing all previous bound changes from the model.
       clear_scenario(z2,Pnum,Psnum);
-      //now re-enter values for prior Branches. The fixed variable value is stored with the ij in BranchIndex, so we compute the previous ij
+      //Set current decision, then re-enter values for prior Branches. The fixed variable value is stored with the ij in BranchIndex, so we compute the previous ij
       input_tree_decisions(z2,node1.row,node1.numinrow,BranchIndex);
          
       //Repeat all for second scenario
@@ -721,51 +743,136 @@ int main(int argc, const char * argv[]) {
 
       //Solve the scenarios together
       basemodel->optimize();
-      //Process results of current scenario = 1
-      process_LPstatus(basemodel->get(GRB_IntAttr_Status), node2, bestbound, z2, Pnum, Psnum, tol, Best_Found_Solution, Tree_to_Process, basemodel, integernodes, trimmedbybound, branchstrat);
       
-      std::cout << "Printing for scenario 1: " <<std::endl;
+      //Process Results of Scenario 1
+      basemodel->set(GRB_IntParam_ScenarioNumber, 1);
+      scenNObjBound = basemodel->get(GRB_DoubleAttr_ScenNObjBound);
+      scenNObjVal = basemodel->get(GRB_DoubleAttr_ScenNObjVal);
+      scenNStatus = basemodel->get(GRB_IntAttr_Status);
+      
+      
       if (basemodel->get(GRB_IntAttr_Status) == 2)
       {
-         print_solution(Pnum, Psnum, z2);
+         if (check_statusInfeasible(scenNObjBound, scenNObjVal))
+         {
+            if ( display_solutions)
+            {
+               std::cout << "Printing for scenario 1: " <<std::endl;
+               print_solution_all(Pnum, Psnum, z2);
+            }
+         }
+         else
+         {
+            scenNStatus = 3;
+            if (display_solutions)
+            std::cout << "Scenario 1: Infeasible by checkstatus comparison." <<std::endl;
+         }
       }
       else
       {
-         std::cout << "Infeasible Scenario. " <<std::endl;
+         if (display_solutions)
+            std::cout << "Scenario 1 Infeasible by Both Scenarios Infeasible/Unbounded." <<std::endl;
       }
+      process_LPstatus(scenNStatus, node2, bestbound, z2, Pnum, Psnum, tol, Best_Found_Solution, Tree_to_Process, basemodel, integernodes, trimmedbyinf, trimmedbybound, branchstrat);
+
       //Switch to other scenario and process
       basemodel->set(GRB_IntParam_ScenarioNumber, 0);
-      process_LPstatus(basemodel->get(GRB_IntAttr_Status), node1, bestbound, z2, Pnum, Psnum, tol, Best_Found_Solution, Tree_to_Process, basemodel, integernodes, trimmedbybound, branchstrat);
+      scenNObjBound = basemodel->get(GRB_DoubleAttr_ScenNObjBound);
+      scenNObjVal = basemodel->get(GRB_DoubleAttr_ScenNObjVal);
+      scenNStatus = basemodel->get(GRB_IntAttr_Status);
       
-      std::cout << "Printing for scenario 0: " <<std::endl;
       if (basemodel->get(GRB_IntAttr_Status) == 2)
       {
-         print_solution(Pnum, Psnum, z2);
+         if (check_statusInfeasible(scenNObjBound, scenNObjVal))
+         {
+            if ( display_solutions)
+            {
+               std::cout << "Printing for scenario 0: " <<std::endl;
+               print_solution_all(Pnum, Psnum, z2);
+            }
+         }
+         else
+         {
+            scenNStatus = 3;
+            if (display_solutions)
+               std::cout << "Scenario 0: Infeasible by checkstatus comparison." <<std::endl;
+         }
       }
       else
       {
-         std::cout << "Infeasible Scenario." <<std::endl;
+         if (display_solutions)
+            std::cout << "Scenario 0 Infeasible by Both Scenarios Infeasible/Unbounded." <<std::endl;
       }
-
-      std::cout << "End of loop: " << node1.row << " " << node1.numinrow <<std::endl;
+      process_LPstatus(scenNStatus, node1, bestbound, z2, Pnum, Psnum, tol, Best_Found_Solution, Tree_to_Process, basemodel, integernodes, trimmedbyinf, trimmedbybound, branchstrat);
    }
    
+   t = std::chrono::steady_clock::now();
+   auto totaltime = std::chrono::duration_cast<std::chrono::milliseconds>(t-start).count() /1000;
+   std::cout << "Total Running time: " << totaltime <<"s" << std::endl;
+
    std::cout << "Best found solution has value: " << bestbound << " after processing " << nodecount << " nodes out of " << pow(2,totalsupp)-1 << " possible nodes." << std::endl;
-   std::cout << "Integer nodes reached: " << integernodes << " and trimmed by bound count: " << trimmedbybound << " using strategy " << branchstratsave << " starting " << startmonth << " " << startyear << " using " << Pnum << " measures." << std::endl;
+   std::cout << "Integer nodes reached: " << integernodes << " and trimmed by bound count: " << trimmedbybound << " and infeasible branches reached: " <<trimmedbyinf << std::endl;
+   std::cout << " using strategy " << branchstratsave << " starting " << startmonth << " " << startyear << " using " << Pnum << " measures." << std::endl;
+   print_solution(Pnum, Psnum,Best_Found_Solution);
+   /*
    for (int i = 0; i < Pnum; ++i)
    {
       for (int j = 0; j < Psnum[i]; ++j)
       {
          std:: cout << "Measure: "<< i << " Point: " << j << " Value: " << Best_Found_Solution[i][j] << std::endl;
       }
-   }
+   }*/
 
    
    //To write model to a file
 /*      std::ostringstream filename2;
    filename2 << "/Users/spatterson/ForXcode/PricingLP/Pricing_TestBB1.lp";
    basemodel->write(filename2.str());*/
-      
+
+   if (final_to_file)
+   {
+      std::ofstream outfile;
+      if (argc > 3)
+      {
+         fname.str("");
+         fname.clear();
+         fname << argv[3];
+         outfile.open(fname.str(), std::fstream::in | std::fstream::out | std::fstream::app);
+      }
+      else
+      {
+         std::cout << "Please enter file name for output of final solution." << std::endl;
+         std::string filename;
+         getline( std::cin, filename);
+         outfile.open(filename, std::ios_base::app);
+      }
+      if (!outfile.good())
+      {
+         std::cout << "File for final solution not found." << std::endl;
+         return 1;
+      }
+      outfile << "Best found solution has value: " << bestbound << " after processing " << nodecount << " nodes out of " << pow(2,totalsupp)-1 << " possible nodes." << std::endl;
+      outfile << "Integer nodes reached: " << integernodes << " and trimmed by bound count: " << trimmedbybound << " and infeasible branches reached: " <<trimmedbyinf << std::endl;
+      outfile << " using strategy " << branchstratsave << " starting " << startmonth << " " << startyear << " using " << Pnum << " measures that have " << totalsupp <<" support points." << std::endl;
+      if (sort_measures)
+      {
+         outfile << "Measures were sorted smallest to largest." <<std::endl;
+      }
+      outfile <<"Total running time in seconds: " << totaltime <<std::endl;
+
+      for (int i = 0; i < Pnum; ++i)
+      {
+         for (int j = 0; j < Psnum[i]; ++j)
+         {
+            if (Best_Found_Solution[i][j]>0)
+               outfile <<"Measure " << i << " Point " << j << " Value " << Best_Found_Solution[i][j] <<std::endl;
+         }
+      }
+      outfile.close();
+   }
+   
+   std::cout << "Enter to end." <<std::endl;
+   std::cin.get();
    basemodel->terminate();
    delete basemodel;
    delete env;
@@ -980,7 +1087,7 @@ int clear_scenario(std::vector<std::vector< GRBVar> > &z2, const int Pnum, const
    return 0;
 }
 
-int find_ClosestToInt(std::vector<std::vector< GRBVar> > &z2, const int Pnum, const int *Psnum, const double &tol, int &iindex, int &jindex)
+int find_ClosestToInt(std::vector<std::vector< GRBVar> > &z2, const int Pnum, const int *Psnum, const double &tol, long int &iindex, long int &jindex)
 {
    double diff = 1;
 
@@ -1022,15 +1129,13 @@ int input_tree_decisions(std::vector<std::vector< GRBVar> > &z2, long int bi_i, 
    {
       std::cout << "Invalid row index." <<std::endl;
    }
+//   std::cout << "Setting decisions for row " << bi_i << " , column " << bi_j << std::endl;
    
-   while (bi_i >= 1)
+   
+   while (bi_i >= 1) //There is no decision for row 0, as that is the original LP relaxation, so row 1 is the lowest to enter previous decisions
    {
-      --bi_i;
-      if (bi_j %2 == 1)
-      {
-         --bi_j;
-      }
-      bi_j /= 2;
+      //helpful output for tracking decisions for non-index-order branching strategies
+//      std::cout << "BI[" <<bi_i <<"][" <<bi_j <<"] is " << BranchIndex[bi_i][bi_j].setval << " for variable " << BranchIndex[bi_i][bi_j].iindex << ", "<< BranchIndex[bi_i][bi_j].jindex << std::endl;
       //Need to check value to know whether to set upper bound (UB) or lower bound (LB)
       if (BranchIndex[bi_i][bi_j].setval == 1)
       {
@@ -1040,6 +1145,12 @@ int input_tree_decisions(std::vector<std::vector< GRBVar> > &z2, long int bi_i, 
       {
          z2[BranchIndex[bi_i][bi_j].iindex][BranchIndex[bi_i][bi_j].jindex].set(GRB_DoubleAttr_ScenNUB, 0);
       }
+      --bi_i;
+      if (bi_j %2 == 1)
+      {
+         --bi_j;
+      }
+      bi_j /= 2;
    }
 
    return 0;
@@ -1188,6 +1299,7 @@ int process_LPstatus(const int scenstatus, Node &node, double &bestbound, std::v
             
          }
       }
+      
    }
    else if (scenstatus == 3 or scenstatus == 4) //LP Infeasible or Infeasible/Unbounded, should be infeasible
    {
@@ -1203,7 +1315,7 @@ int process_LPstatus(const int scenstatus, Node &node, double &bestbound, std::v
 }
 
 //version to also count if the node is integer, trimmed due to bound, and stores branching information
-int process_LPstatus(const int scenstatus, Node &node, double &bestbound, std::vector<std::vector< GRBVar> > &z2, const int Pnum, const int *Psnum, const double tol, std::vector< std::vector<double> > &Best_Found_Solution, std::vector<Node> &Tree_to_Process, GRBModel* basemodel, int &integercount, int &trimmedbybound, const int &branchstrat)
+int process_LPstatus(const int scenstatus, Node &node, double &bestbound, std::vector<std::vector< GRBVar> > &z2, const int Pnum, const int *Psnum, const double tol, std::vector< std::vector<double> > &Best_Found_Solution, std::vector<Node> &Tree_to_Process, GRBModel* basemodel, int &integercount, int &trimmedbyinf, int &trimmedbybound, const int &branchstrat)
 {
    if (scenstatus == 2)
    {
@@ -1230,7 +1342,42 @@ int process_LPstatus(const int scenstatus, Node &node, double &bestbound, std::v
          {
             node.is_leaf = 1;
             //Additional code to choose next branch goes here
-            if (branchstrat == 2)
+            if (branchstrat == 1)
+            {
+               int currenti = 0;
+               int currentj = 0;
+               int temp = 1;
+               bool foundi = false;
+               for (int i = 0; i < Pnum; ++i)
+               {
+                  if (!foundi)
+                  {
+                     for (int j = 0; j < Psnum[i]; ++j)
+                     {
+                        if (temp == node.row)
+                        {
+                           currenti = i;
+                           currentj = j;
+                           foundi = true;
+                           break;
+                        }
+                        ++temp;
+                     }
+                  }
+               }
+               //This choice takes us in index order: (0,0), then (0,1), then (0,2), etc., eventually then going to (1,0), making the same choice across a particular row.
+               if (currentj+1 < Psnum[currenti])
+               {
+                  node.nextj = currentj+1;
+                  node.nexti = currenti;
+               }
+               else
+               {
+                  node.nextj = 0;
+                  node.nexti = currenti+1;
+               }
+            }
+            else if (branchstrat == 2)
             {
                find_ClosestToInt(z2, Pnum, Psnum, tol, node.nexti, node.nextj);
             }
@@ -1238,17 +1385,22 @@ int process_LPstatus(const int scenstatus, Node &node, double &bestbound, std::v
             {
                find_FirstRepeated(z2, Pnum, Psnum, tol, node.nexti, node.nextj);
             }
-   //         std::cout << node.nexti << " " << node.nextj <<std::endl;
+            
+//            std::cout << node.nexti << " " << node.nextj <<std::endl;
 
             Tree_to_Process.push_back(node);
          }
+      }
+      else
+      {
+         ++trimmedbybound;
       }
    }
    else if (scenstatus == 3 or scenstatus == 4) //LP Infeasible or Infeasible/Unbounded, should be infeasible
    {
       node.bound = 0;
       node.is_leaf = 0;
-      ++trimmedbybound;
+      ++trimmedbyinf;
    }
    else
    {
@@ -1334,7 +1486,7 @@ int count_RepeatedValues(std::vector<std::vector< GRBVar> > &z2, const int Pnum,
 
 //Function that will return the location of the first element that has the most repeated value
 //This version only counts fractional values for introducing as next node
-int find_FirstRepeated(const std::vector< std::vector< GRBVar> > &z2, const int &Pnum, const int * Psnum,  const double &tol, int &iindex, int &jindex)
+int find_FirstRepeated(const std::vector< std::vector< GRBVar> > &z2, const int &Pnum, const int * Psnum,  const double &tol, long int &iindex, long int &jindex)
 {
    std::vector<double> uniquenums;
    std::vector<double>::iterator unit = uniquenums.begin();
@@ -1360,7 +1512,6 @@ int find_FirstRepeated(const std::vector< std::vector< GRBVar> > &z2, const int 
             if (new_num)
             {
                first_of_each_value.push_back(ij(i,j,0));
-               std::cout <<first_of_each_value[count].iindex << " " << first_of_each_value[count].jindex  << std::endl;
                uniquenums.push_back(z2[i][j].get(GRB_DoubleAttr_ScenNX));
                uniquecount.push_back(1);
             }
@@ -1372,12 +1523,11 @@ int find_FirstRepeated(const std::vector< std::vector< GRBVar> > &z2, const int 
 
    iindex = first_of_each_value[max_idx].iindex;
    jindex = first_of_each_value[max_idx].jindex;
-   std::cout << "In search: " <<iindex << " " <<jindex <<std::endl;
    
    return 0;
 }
 
-void print_solution(const int &Pnum, const int * Psnum, std::vector< std::vector<GRBVar > > &current_sol  )
+void print_solution_all(const int &Pnum, const int * Psnum, std::vector< std::vector<GRBVar > > &current_sol  )
 {
    for (int i = 0; i < Pnum; ++i)
    {
@@ -1387,4 +1537,54 @@ void print_solution(const int &Pnum, const int * Psnum, std::vector< std::vector
      }
    }
    std::cout << std::endl;
+}
+
+void print_solution(const int &Pnum, const int * Psnum, std::vector< std::vector<GRBVar > > &current_sol  )
+{
+   for (int i = 0; i < Pnum; ++i)
+   {
+     for (int j = 0; j < Psnum[i]; ++j)
+     {
+        if (current_sol[i][j].get(GRB_DoubleAttr_ScenNX) > 0)
+        {
+           std:: cout << "Measure: "<< i << " Point: " << j << " Value: " << current_sol[i][j].get(GRB_DoubleAttr_ScenNX) << std::endl;
+        }
+     }
+   }
+   std::cout << std::endl;
+}
+
+void print_solution(const int &Pnum, const int * Psnum, std::vector< std::vector<double > > &current_sol  )
+{
+   for (int i = 0; i < Pnum; ++i)
+   {
+     for (int j = 0; j < Psnum[i]; ++j)
+     {
+        if (current_sol[i][j] > 0)
+        {
+           std:: cout << "Measure: "<< i << " Point: " << j << " Value: " << current_sol[i][j] << std::endl;
+        }
+     }
+   }
+   std::cout << std::endl;
+}
+
+bool check_statusInfeasible(double &scenNObjBound, double &scenNObjVal)
+{
+   // Check if we found a feasible solution for this scenario
+   if (GRB_MAXIMIZE * scenNObjVal >= GRB_INFINITY)
+   {
+      if (GRB_MAXIMIZE * scenNObjBound >= GRB_INFINITY)
+      {
+         // Scenario was proven to be infeasible
+//         std::cout << "INFEASIBLE" << std::endl;
+         return false;
+      }
+      else
+      {
+         std::cout << "Status Infeasible Check Failed: Should not happen unless Gurobi limits changed." <<std::endl;
+         return false;
+      }
+   }
+   return true;
 }

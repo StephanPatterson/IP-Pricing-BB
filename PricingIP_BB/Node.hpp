@@ -22,7 +22,7 @@ public:
    int is_leaf;
    long int row;
    long int numinrow;
-   int nexti = -1;
-   int nextj = -1;
+   long int nexti = -1;
+   long int nextj = -1;
 };
 #endif /* Node_hpp */
